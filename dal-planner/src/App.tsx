@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import './App.css'
 import { supabase } from './utils/supabase'
 import { ScheduleXCalendar, useCalendarApp } from '@schedule-x/react'
@@ -22,6 +22,53 @@ function App() {
       return title.includes(q) || code.includes(q) || crn.includes(q)
     })
   }, [classes, searchQuery])
+
+  // Group filtered classes by course (SUBJ_CODE + CRSE_NUMB)
+  const groupedClasses = useMemo(() => {
+    const groups: { key: string; code: string; title: string; termInfo: string; sections: any[] }[] = []
+    const map = new Map<string, number>()
+    filteredClasses.forEach(cls => {
+      const key = `${cls.SUBJ_CODE || ''}-${cls.CRSE_NUMB || ''}`
+      if (!map.has(key)) {
+        map.set(key, groups.length)
+        const ptrm = cls.PTRM_CODE ? `(${cls.PTRM_CODE})` : ''
+        const term = cls.TERM_CODE ? `(${cls.TERM_CODE})` : ''
+        const dates = cls.START_DATE && cls.END_DATE ? `${cls.START_DATE} - ${cls.END_DATE}` : ''
+        const termLabel = `${term} WINTER ${ptrm}: ${dates}`
+        groups.push({
+          key,
+          code: `${cls.SUBJ_CODE || ''} ${cls.CRSE_NUMB || ''}`,
+          title: cls.CRSE_TITLE || '',
+          termInfo: dates ? termLabel : '',
+          sections: [],
+        })
+      }
+      groups[map.get(key)!].sections.push(cls)
+    })
+    return groups
+  }, [filteredClasses])
+
+
+
+  // Format days into compact string
+  const formatDays = (cls: any) => {
+    const parts: string[] = []
+    if (cls.MONDAYS?.trim()) parts.push('M')
+    if (cls.TUESDAYS?.trim()) parts.push('T')
+    if (cls.WEDNESDAYS?.trim()) parts.push('W')
+    if (cls.THURSDAYS?.trim()) parts.push('R')
+    if (cls.FRIDAYS?.trim()) parts.push('F')
+    return parts.join('') || ''
+  }
+
+  // Row class based on schedule type (Lec vs Lab/Tut)
+  const rowTypeClass = (schdType: string) => {
+    if (!schdType) return ''
+    const t = schdType.trim().toLowerCase()
+    if (t === 'lec') return 'row-lec'
+    if (t === 'lab' || t === 'tut') return 'row-lab'
+    return ''
+  }
 
   const highlightMatch = (text: string) => {
     if (!searchQuery.trim() || !text) return text
@@ -123,11 +170,13 @@ function App() {
       const { data: CLASSES, error } = await supabase
         .from('CLASSES')
         .select(`
-          SUBJ_CODE, CRSE_NUMB, NOTE_ROW, CRN, SEQ_NUMB, CREDIT_HRS, LINK_CONN, 
+          SUBJ_CODE, CRSE_NUMB, NOTE_ROW, CRN, SEQ_NUMB, SCHD_TYPE,
+          CREDIT_HRS, LINK_CONN, 
           MONDAYS, TUESDAYS, WEDNESDAYS, THURSDAYS, FRIDAYS, CRSE_TITLE,
           TIMES, LOCATIONS, MAX_ENRL, ENRL, SEATS, WLIST, 
           PERC_FULL, XLIST_MAX, XLIST_CUR, INSTRUCTORS, 
-          TUITION_CODE, BILL_HRS
+          TUITION_CODE, BILL_HRS, NOTE_BOTTOM,
+          TERM_CODE, PTRM_CODE, START_DATE, END_DATE
         `)
 
 
@@ -149,6 +198,17 @@ function App() {
     if (n > 0) return 'seats-positive'
     if (n <= 0) return 'seats-zero'
     return ''
+  }
+
+  // Dynamic color for %Full column
+  const percFullClass = (pf: string | null | undefined) => {
+    if (!pf) return ''
+    const n = parseFloat(pf)
+    if (isNaN(n)) return ''
+    if (n >= 95) return 'pf-critical'
+    if (n >= 80) return 'pf-high'
+    if (n >= 50) return 'pf-mid'
+    return 'pf-low'
   }
 
   return (
@@ -201,79 +261,94 @@ function App() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th rowSpan={2}>Select</th>
-                    <th rowSpan={2}>Notes</th>
-                    <th rowSpan={2}>CRN</th>
-                    <th rowSpan={2}>Section</th>
-                    <th rowSpan={2}>Cr<br />Hrs</th>
-                    <th rowSpan={2}>Link</th>
-                    <th colSpan={5}>Days</th>
-                    <th rowSpan={2}>Course Title</th>
-                    <th rowSpan={2}>Times</th>
-                    <th rowSpan={2}>Location(s)</th>
-                    <th colSpan={5}>Enrolment Info</th>
-                    <th colSpan={2}>XList Info</th>
-                    <th rowSpan={2}>Instructor(s)</th>
-                    <th colSpan={2}>Tuition</th>
-                  </tr>
-                  <tr>
-                    <th className="sub-th">Mo</th>
-                    <th className="sub-th">Tu</th>
-                    <th className="sub-th">We</th>
-                    <th className="sub-th">Th</th>
-                    <th className="sub-th">Fr</th>
-
-                    <th className="sub-th">Max</th>
-                    <th className="sub-th">Cur</th>
-                    <th className="sub-th">Avail</th>
-                    <th className="sub-th">WtLst</th>
-                    <th className="sub-th">%Full</th>
-
-                    <th className="sub-th">Max</th>
-                    <th className="sub-th">Cur</th>
-
-                    <th className="sub-th">Code</th>
-                    <th className="sub-th">BHrs</th>
+                    <th className="th-note"></th>
+                    <th className="th-select"></th>
+                    <th>CRN</th>
+                    <th>Sec</th>
+                    <th>Type</th>
+                    <th>Cr<br />Hrs</th>
+                    <th>Link</th>
+                    <th className="th-day">M</th>
+                    <th className="th-day">T</th>
+                    <th className="th-day">W</th>
+                    <th className="th-day">R</th>
+                    <th className="th-day">F</th>
+                    <th>Times</th>
+                    <th>Location</th>
+                    <th>Max</th>
+                    <th>Cur</th>
+                    <th>Avail</th>
+                    <th>%Full</th>
+                    <th>Instructor</th>
+                    <th>Cr<br />Hrs</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredClasses.map((cls, idx) => {
-                    const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
-                    return (
-                      <tr key={idx} className={isSelected ? 'row-selected' : ''}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleClassSelection(cls)}
-                          />
+                  {groupedClasses.map(group => (
+                    <>
+                      {/* Course header row */}
+                      <tr key={group.key} className="course-header">
+                        <td colSpan={20}>
+                          <div className="course-header-inner">
+                            <span>
+                              <span className="course-code">{highlightMatch(group.code)}</span>
+                              <span className="course-title">{highlightMatch(group.title)}</span>
+                            </span>
+                            {group.termInfo && <span className="course-term">{group.termInfo}</span>}
+                          </div>
                         </td>
-                        <td>{cls.NOTE_ROW}</td>
-                        <td>{highlightMatch(String(cls.CRN ?? ''))}</td>
-                        <td>{cls.SEQ_NUMB}</td>
-                        <td>{cls.CREDIT_HRS}</td>
-                        <td>{cls.LINK_CONN}</td>
-                        <td>{cls.MONDAYS}</td>
-                        <td>{cls.TUESDAYS}</td>
-                        <td>{cls.WEDNESDAYS}</td>
-                        <td>{cls.THURSDAYS}</td>
-                        <td>{cls.FRIDAYS}</td>
-                        <td className="cell-title">{highlightMatch(cls.CRSE_TITLE ?? '')}</td>
-                        <td>{cls.TIMES}</td>
-                        <td className="cell-location">{cls.LOCATIONS}</td>
-                        <td>{cls.MAX_ENRL}</td>
-                        <td>{cls.ENRL}</td>
-                        <td className={seatsClass(cls.SEATS)}>{cls.SEATS}</td>
-                        <td>{cls.WLIST}</td>
-                        <td>{cls.PERC_FULL}</td>
-                        <td>{cls.XLIST_MAX}</td>
-                        <td>{cls.XLIST_CUR}</td>
-                        <td>{cls.INSTRUCTORS}</td>
-                        <td>{cls.TUITION_CODE}</td>
-                        <td>{cls.BILL_HRS}</td>
                       </tr>
-                    )
-                  })}
+                      {/* Section rows */}
+                      {group.sections.map((cls, idx) => {
+                        const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
+                        const noteVal = (cls.NOTE_ROW || '').trim()
+                        const noteBottom = (cls.NOTE_BOTTOM || '').trim()
+                        return (
+                          <React.Fragment key={`${group.key}-${idx}`}>
+                            <tr
+                              className={[
+                                isSelected ? 'row-selected' : '',
+                                rowTypeClass(cls.SCHD_TYPE),
+                              ].filter(Boolean).join(' ')}
+                            >
+                              <td className="cell-note">{noteVal}</td>
+                              <td className="cell-select">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleClassSelection(cls)}
+                                />
+                              </td>
+                              <td>{highlightMatch(String(cls.CRN ?? ''))}</td>
+                              <td>{cls.SEQ_NUMB}</td>
+                              <td>{cls.SCHD_TYPE || 'Lec'}</td>
+                              <td>{cls.CREDIT_HRS}</td>
+                              <td>{cls.LINK_CONN}</td>
+                              <td className={cls.MONDAYS?.trim() ? 'day-active' : 'day-empty'}>{cls.MONDAYS}</td>
+                              <td className={cls.TUESDAYS?.trim() ? 'day-active' : 'day-empty'}>{cls.TUESDAYS}</td>
+                              <td className={cls.WEDNESDAYS?.trim() ? 'day-active' : 'day-empty'}>{cls.WEDNESDAYS}</td>
+                              <td className={cls.THURSDAYS?.trim() ? 'day-active' : 'day-empty'}>{cls.THURSDAYS}</td>
+                              <td className={cls.FRIDAYS?.trim() ? 'day-active' : 'day-empty'}>{cls.FRIDAYS}</td>
+                              <td className="cell-times">{cls.TIMES}</td>
+                              <td className="cell-location">{cls.LOCATIONS}</td>
+                              <td>{cls.MAX_ENRL}</td>
+                              <td>{cls.ENRL}</td>
+                              <td className={seatsClass(cls.SEATS)}>{cls.SEATS}</td>
+                              <td className={percFullClass(cls.PERC_FULL)}>{cls.PERC_FULL}</td>
+                              <td className="cell-instructor">{cls.INSTRUCTORS}</td>
+                              <td>{cls.BILL_HRS}</td>
+                            </tr>
+                            {noteBottom && (
+                              <tr className="row-note">
+                                <td className="cell-note cell-note-label">NOTE</td>
+                                <td colSpan={19} className="cell-note-text">{noteBottom}</td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        )
+                      })}
+                    </>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -300,7 +375,7 @@ function App() {
             )}
 
             <div className="right-panel-label">Your Schedule</div>
-            <div className="calendar-wrapper">
+            <div className="calendar-wrapp  er">
               <ScheduleXCalendar calendarApp={calendar} />
             </div>
 
@@ -313,7 +388,7 @@ function App() {
           </div>
         </div>
       </div>
-    </div>
+    </div >
   )
 }
 
