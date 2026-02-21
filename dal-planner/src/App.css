@@ -1,8 +1,8 @@
 /* ── Layout ────────────────────────────────────────── */
 .app-container {
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 28px 32px 48px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Header ────────────────────────────────────────── */
@@ -10,11 +10,13 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 24px;
+  padding: 16px 28px;
+  background: #fff;
+  border-bottom: 1px solid #e0e4ea;
 }
 
 .app-header h1 {
-  font-size: 1.6rem;
+  font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -0.025em;
   color: #1a1e2e;
@@ -23,7 +25,7 @@
 
 .app-header .dal-badge {
   display: inline-block;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -33,14 +35,46 @@
   color: #fff;
 }
 
+/* ── Two-column body ───────────────────────────────── */
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Left panel: search + table */
+.left-panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 20px 24px;
+  border-right: 1px solid #e0e4ea;
+}
+
+/* Right panel: selected chips + calendar */
+.right-panel {
+  width: 420px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 20px;
+  background: #f8fafc;
+}
+
+.right-panel-sticky {
+  position: sticky;
+  top: 0;
+}
+
 /* ── Selected Classes Chip Bar ─────────────────────── */
 .selected-bar {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 20px;
-  padding: 12px 16px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
   background: #ffffff;
   border: 1px solid #e0e4ea;
   border-radius: 10px;
@@ -48,7 +82,7 @@
 }
 
 .selected-bar strong {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: #475569;
   white-space: nowrap;
   padding-top: 3px;
@@ -57,30 +91,52 @@
 .selected-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
 }
 
 .selected-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 0.78rem;
+  font-size: 0.73rem;
   font-weight: 500;
-  padding: 4px 10px;
+  padding: 3px 9px;
   border-radius: 6px;
   background: #eef2ff;
   color: #3b5998;
   border: 1px solid #dce3f5;
 }
 
-/* ── Calendar wrapper ──────────────────────────────── */
+/* ── Calendar ──────────────────────────────────────── */
 .calendar-wrapper {
   background: #fff;
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid #e0e4ea;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
   overflow: hidden;
+}
+
+.calendar-empty-state {
+  text-align: center;
+  padding: 32px 16px;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.calendar-empty-state .empty-icon {
+  font-size: 1.8rem;
   margin-bottom: 8px;
+  opacity: 0.6;
+}
+
+.right-panel-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  margin-bottom: 10px;
 }
 
 /* ── Search ────────────────────────────────────────── */
@@ -88,13 +144,13 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 20px 0 16px;
+  margin-bottom: 16px;
+  flex-shrink: 0;
 }
 
 .search-input-wrapper {
   position: relative;
   flex: 1;
-  max-width: 480px;
 }
 
 .search-icon {
@@ -169,11 +225,12 @@
 
 /* ── Data Table ────────────────────────────────────── */
 .table-wrapper {
+  flex: 1;
   background: #fff;
   border: 1px solid #e0e4ea;
   border-radius: 12px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
-  overflow-x: auto;
+  overflow: auto;
 }
 
 .data-table {
