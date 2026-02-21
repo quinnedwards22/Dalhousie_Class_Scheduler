@@ -136,6 +136,16 @@ function App() {
 
   const [searchQuery, setSearchQuery] = useState('')
 
+  const [envError, setEnvError] = useState(false)
+
+  useEffect(() => {
+    // If Supabase url is missing, the client fails to init or queries crash with no clear UI message
+    if (!import.meta.env.VITE_SUPABASE_URL) {
+      setEnvError(true)
+      setLoading(false)
+    }
+  }, [])
+
   // Filter state
   const [subjectFilter, setSubjectFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
@@ -550,342 +560,354 @@ function App() {
         )}
       </header>
 
-      {/* ══════════ BROWSE TAB ══════════ */}
-      {activeTab === 'browse' && (
-        <div className="tab-content browse-tab">
-          {/* Toolbar */}
-          <div className="toolbar">
-            <div className="toolbar-search-row">
-              <div className="search-input-wrapper">
-                <svg className="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
-                <input
-                  id="class-search"
-                  type="text"
-                  className="search-input"
-                  placeholder="Search by course name, code, or CRN..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                />
-                {searchQuery && (
-                  <button className="search-clear" onClick={() => setSearchQuery('')} aria-label="Clear search">✕</button>
-                )}
-              </div>
-              {searchQuery && (
-                <span className="search-result-count">
-                  {filteredClasses.length} {filteredClasses.length === 1 ? 'result' : 'results'}
-                </span>
-              )}
-            </div>
-            <div className="toolbar-filter-row">
-              <select value={subjectFilter} onChange={e => setSubjectFilter(e.target.value)} className="filter-select">
-                <option value="">All Subjects</option>
-                {uniqueSubjects.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="filter-select">
-                <option value="">All Types</option>
-                <option value="lec">Lecture</option>
-                <option value="lab">Lab</option>
-                <option value="tut">Tutorial</option>
-              </select>
-              <div className="day-toggles">
-                {['M', 'T', 'W', 'R', 'F'].map(d => (
-                  <button
-                    key={d}
-                    className={`day-toggle ${dayFilter.has(d) ? 'active' : ''}`}
-                    onClick={() => toggleDayFilter(d)}
-                  >{d}</button>
-                ))}
-              </div>
-              <button
-                className={`filter-toggle ${seatsAvailFilter ? 'active' : ''}`}
-                onClick={() => setSeatsAvailFilter(v => !v)}
-              >Available Only</button>
-              <button
-                className={`filter-toggle ${hideCDFilter ? 'active' : ''}`}
-                onClick={() => setHideCDFilter(v => !v)}
-              >Hide C/D</button>
-              {hasActiveFilters && (
-                <button className="filter-clear" onClick={clearFilters}>Clear Filters</button>
-              )}
-            </div>
-          </div>
-
-          {activeFilterLabels.length > 0 && (
-            <div className="active-filters-bar">
-              <span className="active-filters-label">Filtering:</span>
-              {activeFilterLabels.map((label, i) => (
-                <span key={i} className="active-filter-tag">{label}</span>
-              ))}
-              {searchQuery && <span className="active-filter-tag">"{searchQuery}"</span>}
-            </div>
-          )}
-
-          {/* Table */}
-          {loading ? (
-            <p className="loading-text">Loading classes…</p>
-          ) : classes.length === 0 ? (
-            <p className="loading-text">No classes found.</p>
-          ) : (
-            <div className="table-wrapper">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th className="th-note"></th>
-                    <th className="th-select"></th>
-                    <th>CRN</th>
-                    <th>Sec</th>
-                    <th>Type</th>
-                    <th>Cr<br />Hrs</th>
-                    <th>Link</th>
-                    <th className="th-day">M</th>
-                    <th className="th-day">T</th>
-                    <th className="th-day">W</th>
-                    <th className="th-day">R</th>
-                    <th className="th-day">F</th>
-                    <th>Times</th>
-                    <th>Location</th>
-                    <th className="th-avail">Availability</th>
-                    <th>Instructor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groupedClasses.map(group => (
-                    <React.Fragment key={group.key}>
-                      <tr className="course-header">
-                        <td colSpan={19}>
-                          <div className="course-header-inner">
-                            <span>
-                              <span className="course-code">{highlightMatch(group.code)}</span>
-                              <span className="course-title">{highlightMatch(group.title)}</span>
-                              {group.equiv && <span className="course-equiv">Also offered as {highlightMatch(group.equiv)}</span>}
-                            </span>
-                            {group.termInfo && <span className="course-term">{group.termInfo}</span>}
-                          </div>
-                        </td>
-                      </tr>
-                      {group.sections.map((cls, idx) => {
-                        const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
-                        const noteVal = (cls.NOTE_ROW || '').trim()
-                        const noteBottom = (cls.NOTE_BOTTOM || '').trim()
-                        const conflictList = conflicts.get(`${cls.CRN}-${cls.SEQ_NUMB}`)
-                        const hasConflict = !!conflictList
-                        const isInvalidLink = incompatibleLinks.has(`${cls.CRN}-${cls.SEQ_NUMB}`)
-                        return (
-                          <React.Fragment key={`${group.key}-${idx}`}>
-                            <tr
-                              className={[
-                                isSelected ? 'row-selected' : '',
-                                rowTypeClass(cls.SCHD_TYPE),
-                                hasConflict ? 'row-conflict' : '',
-                                cls.TIMES === 'C/D' ? 'row-dimmed' : '',
-                                isInvalidLink ? 'row-incompatible' : '',
-                                noteBottom ? 'row-has-note' : '',
-                              ].filter(Boolean).join(' ')}
-                            >
-                              <td className="cell-note">{noteVal}</td>
-                              <td className="cell-select">
-                                {(() => {
-                                  const isWlist = Number(cls.SEATS) <= 0 && Number(cls.WLIST) > 0;
-                                  return (
-                                    <label className={`select-label ${isWlist ? 'is-wlist' : ''}`} title={isInvalidLink ? 'Link combo incompatible' : (isWlist ? 'Full - Join Waitlist' : 'Select Class')}>
-                                      <input type="checkbox" checked={isSelected} disabled={isInvalidLink} onChange={() => toggleClassSelection(cls)} />
-                                      {isWlist && !isInvalidLink && <span className="wlist-badge">Waitlist</span>}
-                                    </label>
-                                  )
-                                })()}
-                              </td>
-                              <td>{highlightMatch(String(cls.CRN ?? ''))}</td>
-                              <td>{cls.SEQ_NUMB}</td>
-                              <td>{cls.SCHD_TYPE || 'Lec'}</td>
-                              <td>{cls.CREDIT_HRS}</td>
-                              <td className="cell-narrow">{cls.LINK_CONN}</td>
-                              <td>
-                                {splitByBr(cls.MONDAYS).map((val, i) => (
-                                  <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
-                                ))}
-                              </td>
-                              <td>
-                                {splitByBr(cls.TUESDAYS).map((val, i) => (
-                                  <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
-                                ))}
-                              </td>
-                              <td>
-                                {splitByBr(cls.WEDNESDAYS).map((val, i) => (
-                                  <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
-                                ))}
-                              </td>
-                              <td>
-                                {splitByBr(cls.THURSDAYS).map((val, i) => (
-                                  <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
-                                ))}
-                              </td>
-                              <td>
-                                {splitByBr(cls.FRIDAYS).map((val, i) => (
-                                  <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
-                                ))}
-                              </td>
-                              <td className="cell-times">
-                                {splitByBr(cls.TIMES).map((t, i) => <div key={i} className="sub-row">{t}</div>)}
-                              </td>
-                              <td className="cell-location">
-                                {splitByBr(cls.LOCATIONS).map((l, i) => <div key={i} className="sub-row">{l}</div>)}
-                              </td>
-                              <td className="cell-avail">
-                                {(() => {
-                                  const seats = Number(cls.SEATS) || 0;
-                                  const max = Number(cls.MAX_ENRL) || 0;
-                                  const enrl = Number(cls.ENRL) || 0;
-                                  const wlist = Number(cls.WLIST) || 0;
-                                  const pct = max > 0 ? (enrl / max) * 100 : 0;
-
-                                  if (seats <= 0 && wlist > 0) {
-                                    return (
-                                      <div className="avail-wrapper">
-                                        <div className="avail-text wlist-text">Class Full — Waitlist: {wlist}</div>
-                                        <div className="avail-bar-bg"><div className="avail-bar-fill wlist-fill" style={{ width: `100%` }} /></div>
-                                      </div>
-                                    )
-                                  }
-                                  return (
-                                    <div className="avail-wrapper">
-                                      <div className="avail-text">{Math.max(0, seats)} seats left ({enrl}/{max})</div>
-                                      <div className="avail-bar-bg"><div className="avail-bar-fill" style={{ width: `${Math.min(100, pct)}%`, backgroundColor: pct >= 95 ? '#dc2626' : pct >= 80 ? '#d97706' : '#16a34a' }} /></div>
-                                    </div>
-                                  )
-                                })()}
-                              </td>
-                              <td className="cell-instructor">
-                                {splitByBr(cls.INSTRUCTORS).map((inst, i) => <div key={i} className="sub-row">{inst}</div>)}
-                              </td>
-                            </tr>
-                            {hasConflict && (
-                              <tr className="row-conflict-detail">
-                                <td className="cell-note"></td>
-                                <td colSpan={15} className="conflict-detail-text">⚠️ Conflicts with {conflictList?.join(', ')}</td>
-                                <td></td>
-                              </tr>
-                            )}
-                            {noteBottom && (
-                              <tr className="row-note">
-                                <td className="cell-note cell-note-label">↳ NOTE</td>
-                                <td colSpan={18} className="cell-note-text">{noteBottom}</td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        )
-                      })}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* ── Mini Preview Bar (sticky bottom) ── */}
-          {selectedClasses.length > 0 && (
-            <div className="mini-preview">
-              <div className="mini-preview-info">
-                <span className="mini-preview-count">{selectedClasses.length} class{selectedClasses.length > 1 ? 'es' : ''}</span>
-                <span className="mini-preview-dot">·</span>
-                <span className="mini-preview-credits">{totalCredits} credit hr{totalCredits !== 1 ? 's' : ''}</span>
-                {conflicts.size > 0 && (
-                  <>
-                    <span className="mini-preview-dot">·</span>
-                    <span className="mini-preview-conflict">⚠️ {conflicts.size} conflict{conflicts.size > 1 ? 's' : ''}</span>
-                  </>
-                )}
-              </div>
-              <div className="mini-preview-chips">
-                {selectedClasses.map((sc, i) => (
-                  <span key={i} className="mini-chip">
-                    {sc.SUBJ_CODE && sc.CRSE_NUMB
-                      ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
-                      : `CRN ${sc.CRN}`}
-                    <button className="chip-remove" onClick={() => toggleClassSelection(sc)} aria-label="Remove">✕</button>
-                  </span>
-                ))}
-              </div>
-              <button className="mini-preview-cta" onClick={() => setActiveTab('schedule')}>
-                View Schedule →
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ══════════ SCHEDULE TAB ══════════ */}
-      {activeTab === 'schedule' && (
-        <div className="tab-content schedule-tab">
-          {selectedClasses.length === 0 ? (
-            <div className="schedule-empty">
-              <div className="empty-icon">📅</div>
-              <div className="empty-title">No classes selected</div>
-              <div className="empty-hint">Go to Browse Classes and check the boxes next to classes you want to take</div>
-              <button className="empty-cta" onClick={() => setActiveTab('browse')}>← Browse Classes</button>
-            </div>
-          ) : (
-            <>
-              {conflicts.size > 0 && (
-                <div className="conflict-banner">
-                  ⚠️ Schedule conflict — {conflicts.size} class{conflicts.size > 1 ? 'es' : ''} have overlapping times
-                </div>
-              )}
-
-              <div className="schedule-header">
-                <div className="schedule-stats">
-                  <span className="stat-item">{selectedClasses.length} class{selectedClasses.length > 1 ? 'es' : ''}</span>
-                  <span className="stat-dot">·</span>
-                  <span className="stat-item">{totalCredits} credit hour{totalCredits !== 1 ? 's' : ''}</span>
-                </div>
-                <div className="schedule-chips">
-                  {selectedClasses.map((sc, i) => (
-                    <span key={i} className="selected-chip">
-                      {sc.SUBJ_CODE && sc.CRSE_NUMB
-                        ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
-                        : `CRN ${sc.CRN}`
-                      } · {sc.SEQ_NUMB}
-                      <button className="chip-remove" onClick={() => toggleClassSelection(sc)} aria-label="Remove">✕</button>
+      {/* ── Env Error Check ── */}
+      {envError ? (
+        <main className="main-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '40px' }}>
+          <h2 style={{ color: '#991b1b', marginBottom: '8px' }}>Missing Environment Variables</h2>
+          <p style={{ color: '#4b5563', maxWidth: '500px', textAlign: 'center', lineHeight: '1.5' }}>
+            It looks like this application is missing its Supabase environment variables. If you just deployed this to Vercel, navigate to <b>Settings &gt; Environment Variables</b> and ensure <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY</code> are correctly entered.
+          </p>
+        </main>
+      ) : (
+        <>
+          {/* ══════════ BROWSE TAB ══════════ */}
+          {activeTab === 'browse' && (
+            <div className="tab-content browse-tab">
+              {/* Toolbar */}
+              <div className="toolbar">
+                <div className="toolbar-search-row">
+                  <div className="search-input-wrapper">
+                    <svg className="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8" />
+                      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <input
+                      id="class-search"
+                      type="text"
+                      className="search-input"
+                      placeholder="Search by course name, code, or CRN..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                    />
+                    {searchQuery && (
+                      <button className="search-clear" onClick={() => setSearchQuery('')} aria-label="Clear search">✕</button>
+                    )}
+                  </div>
+                  {searchQuery && (
+                    <span className="search-result-count">
+                      {filteredClasses.length} {filteredClasses.length === 1 ? 'result' : 'results'}
                     </span>
-                  ))}
+                  )}
                 </div>
-              </div>
-
-              <div className="calendar-full">
-                <ScheduleXCalendar calendarApp={calendar} />
-              </div>
-
-              {asyncClasses.length > 0 && (
-                <div className="async-section">
-                  <h3 className="async-title">Asynchronous & TBA Courses</h3>
-                  <div className="async-grid">
-                    {asyncClasses.map((cls, i) => (
-                      <div key={i} className={`async-card ${courseColorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`) || 'course-0'}`}>
-                        <div className="async-card-header">
-                          <span className="async-code">
-                            {cls.SUBJ_CODE} {cls.CRSE_NUMB}
-                          </span>
-                          <span className="async-sec">Sec {cls.SEQ_NUMB}</span>
-                        </div>
-                        <div className="async-title-text">{cls.CRSE_TITLE}</div>
-                        <div className="async-info">
-                          <span>{cls.CREDIT_HRS} Cr Hrs</span>
-                          <span>·</span>
-                          <span>CRN {cls.CRN}</span>
-                        </div>
-                        <div className="async-times">
-                          {splitByBr(cls.TIMES).join(', ') || 'Online / TBA'}
-                        </div>
-                      </div>
+                <div className="toolbar-filter-row">
+                  <select value={subjectFilter} onChange={e => setSubjectFilter(e.target.value)} className="filter-select">
+                    <option value="">All Subjects</option>
+                    {uniqueSubjects.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                  <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="filter-select">
+                    <option value="">All Types</option>
+                    <option value="lec">Lecture</option>
+                    <option value="lab">Lab</option>
+                    <option value="tut">Tutorial</option>
+                  </select>
+                  <div className="day-toggles">
+                    {['M', 'T', 'W', 'R', 'F'].map(d => (
+                      <button
+                        key={d}
+                        className={`day-toggle ${dayFilter.has(d) ? 'active' : ''}`}
+                        onClick={() => toggleDayFilter(d)}
+                      >{d}</button>
                     ))}
                   </div>
+                  <button
+                    className={`filter-toggle ${seatsAvailFilter ? 'active' : ''}`}
+                    onClick={() => setSeatsAvailFilter(v => !v)}
+                  >Available Only</button>
+                  <button
+                    className={`filter-toggle ${hideCDFilter ? 'active' : ''}`}
+                    onClick={() => setHideCDFilter(v => !v)}
+                  >Hide C/D</button>
+                  {hasActiveFilters && (
+                    <button className="filter-clear" onClick={clearFilters}>Clear Filters</button>
+                  )}
+                </div>
+              </div>
+
+              {activeFilterLabels.length > 0 && (
+                <div className="active-filters-bar">
+                  <span className="active-filters-label">Filtering:</span>
+                  {activeFilterLabels.map((label, i) => (
+                    <span key={i} className="active-filter-tag">{label}</span>
+                  ))}
+                  {searchQuery && <span className="active-filter-tag">"{searchQuery}"</span>}
                 </div>
               )}
-            </>
+
+              {/* Table */}
+              {loading ? (
+                <p className="loading-text">Loading classes…</p>
+              ) : classes.length === 0 ? (
+                <p className="loading-text">No classes found.</p>
+              ) : (
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th className="th-note"></th>
+                        <th className="th-select"></th>
+                        <th>CRN</th>
+                        <th>Sec</th>
+                        <th>Type</th>
+                        <th>Cr<br />Hrs</th>
+                        <th>Link</th>
+                        <th className="th-day">M</th>
+                        <th className="th-day">T</th>
+                        <th className="th-day">W</th>
+                        <th className="th-day">R</th>
+                        <th className="th-day">F</th>
+                        <th>Times</th>
+                        <th>Location</th>
+                        <th className="th-avail">Availability</th>
+                        <th>Instructor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {groupedClasses.map(group => (
+                        <React.Fragment key={group.key}>
+                          <tr className="course-header">
+                            <td colSpan={19}>
+                              <div className="course-header-inner">
+                                <span>
+                                  <span className="course-code">{highlightMatch(group.code)}</span>
+                                  <span className="course-title">{highlightMatch(group.title)}</span>
+                                  {group.equiv && <span className="course-equiv">Also offered as {highlightMatch(group.equiv)}</span>}
+                                </span>
+                                {group.termInfo && <span className="course-term">{group.termInfo}</span>}
+                              </div>
+                            </td>
+                          </tr>
+                          {group.sections.map((cls, idx) => {
+                            const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
+                            const noteVal = (cls.NOTE_ROW || '').trim()
+                            const noteBottom = (cls.NOTE_BOTTOM || '').trim()
+                            const conflictList = conflicts.get(`${cls.CRN}-${cls.SEQ_NUMB}`)
+                            const hasConflict = !!conflictList
+                            const isInvalidLink = incompatibleLinks.has(`${cls.CRN}-${cls.SEQ_NUMB}`)
+                            return (
+                              <React.Fragment key={`${group.key}-${idx}`}>
+                                <tr
+                                  className={[
+                                    isSelected ? 'row-selected' : '',
+                                    rowTypeClass(cls.SCHD_TYPE),
+                                    hasConflict ? 'row-conflict' : '',
+                                    cls.TIMES === 'C/D' ? 'row-dimmed' : '',
+                                    isInvalidLink ? 'row-incompatible' : '',
+                                    noteBottom ? 'row-has-note' : '',
+                                  ].filter(Boolean).join(' ')}
+                                >
+                                  <td className="cell-note">{noteVal}</td>
+                                  <td className="cell-select">
+                                    {(() => {
+                                      const isWlist = Number(cls.SEATS) <= 0 && Number(cls.WLIST) > 0;
+                                      return (
+                                        <label className={`select-label ${isWlist ? 'is-wlist' : ''}`} title={isInvalidLink ? 'Link combo incompatible' : (isWlist ? 'Full - Join Waitlist' : 'Select Class')}>
+                                          <input type="checkbox" checked={isSelected} disabled={isInvalidLink} onChange={() => toggleClassSelection(cls)} />
+                                          {isWlist && !isInvalidLink && <span className="wlist-badge">Waitlist</span>}
+                                        </label>
+                                      )
+                                    })()}
+                                  </td>
+                                  <td>{highlightMatch(String(cls.CRN ?? ''))}</td>
+                                  <td>{cls.SEQ_NUMB}</td>
+                                  <td>{cls.SCHD_TYPE || 'Lec'}</td>
+                                  <td>{cls.CREDIT_HRS}</td>
+                                  <td className="cell-narrow">{cls.LINK_CONN}</td>
+                                  <td>
+                                    {splitByBr(cls.MONDAYS).map((val, i) => (
+                                      <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                    ))}
+                                  </td>
+                                  <td>
+                                    {splitByBr(cls.TUESDAYS).map((val, i) => (
+                                      <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                    ))}
+                                  </td>
+                                  <td>
+                                    {splitByBr(cls.WEDNESDAYS).map((val, i) => (
+                                      <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                    ))}
+                                  </td>
+                                  <td>
+                                    {splitByBr(cls.THURSDAYS).map((val, i) => (
+                                      <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                    ))}
+                                  </td>
+                                  <td>
+                                    {splitByBr(cls.FRIDAYS).map((val, i) => (
+                                      <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                    ))}
+                                  </td>
+                                  <td className="cell-times">
+                                    {splitByBr(cls.TIMES).map((t, i) => <div key={i} className="sub-row">{t}</div>)}
+                                  </td>
+                                  <td className="cell-location">
+                                    {splitByBr(cls.LOCATIONS).map((l, i) => <div key={i} className="sub-row">{l}</div>)}
+                                  </td>
+                                  <td className="cell-avail">
+                                    {(() => {
+                                      const seats = Number(cls.SEATS) || 0;
+                                      const max = Number(cls.MAX_ENRL) || 0;
+                                      const enrl = Number(cls.ENRL) || 0;
+                                      const wlist = Number(cls.WLIST) || 0;
+                                      const pct = max > 0 ? (enrl / max) * 100 : 0;
+
+                                      if (seats <= 0 && wlist > 0) {
+                                        return (
+                                          <div className="avail-wrapper">
+                                            <div className="avail-text wlist-text">Class Full — Waitlist: {wlist}</div>
+                                            <div className="avail-bar-bg"><div className="avail-bar-fill wlist-fill" style={{ width: `100%` }} /></div>
+                                          </div>
+                                        )
+                                      }
+                                      return (
+                                        <div className="avail-wrapper">
+                                          <div className="avail-text">{Math.max(0, seats)} seats left ({enrl}/{max})</div>
+                                          <div className="avail-bar-bg"><div className="avail-bar-fill" style={{ width: `${Math.min(100, pct)}%`, backgroundColor: pct >= 95 ? '#dc2626' : pct >= 80 ? '#d97706' : '#16a34a' }} /></div>
+                                        </div>
+                                      )
+                                    })()}
+                                  </td>
+                                  <td className="cell-instructor">
+                                    {splitByBr(cls.INSTRUCTORS).map((inst, i) => <div key={i} className="sub-row">{inst}</div>)}
+                                  </td>
+                                </tr>
+                                {hasConflict && (
+                                  <tr className="row-conflict-detail">
+                                    <td className="cell-note"></td>
+                                    <td colSpan={15} className="conflict-detail-text">⚠️ Conflicts with {conflictList?.join(', ')}</td>
+                                    <td></td>
+                                  </tr>
+                                )}
+                                {noteBottom && (
+                                  <tr className="row-note">
+                                    <td className="cell-note cell-note-label">↳ NOTE</td>
+                                    <td colSpan={18} className="cell-note-text">{noteBottom}</td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            )
+                          })}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* ── Mini Preview Bar (sticky bottom) ── */}
+              {selectedClasses.length > 0 && (
+                <div className="mini-preview">
+                  <div className="mini-preview-info">
+                    <span className="mini-preview-count">{selectedClasses.length} class{selectedClasses.length > 1 ? 'es' : ''}</span>
+                    <span className="mini-preview-dot">·</span>
+                    <span className="mini-preview-credits">{totalCredits} credit hr{totalCredits !== 1 ? 's' : ''}</span>
+                    {conflicts.size > 0 && (
+                      <>
+                        <span className="mini-preview-dot">·</span>
+                        <span className="mini-preview-conflict">⚠️ {conflicts.size} conflict{conflicts.size > 1 ? 's' : ''}</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="mini-preview-chips">
+                    {selectedClasses.map((sc, i) => (
+                      <span key={i} className="mini-chip">
+                        {sc.SUBJ_CODE && sc.CRSE_NUMB
+                          ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
+                          : `CRN ${sc.CRN}`}
+                        <button className="chip-remove" onClick={() => toggleClassSelection(sc)} aria-label="Remove">✕</button>
+                      </span>
+                    ))}
+                  </div>
+                  <button className="mini-preview-cta" onClick={() => setActiveTab('schedule')}>
+                    View Schedule →
+                  </button>
+                </div>
+              )}
+            </div>
           )}
-        </div>
+
+          {/* ══════════ SCHEDULE TAB ══════════ */}
+          {activeTab === 'schedule' && (
+            <div className="tab-content schedule-tab">
+              {selectedClasses.length === 0 ? (
+                <div className="schedule-empty">
+                  <div className="empty-icon">📅</div>
+                  <div className="empty-title">No classes selected</div>
+                  <div className="empty-hint">Go to Browse Classes and check the boxes next to classes you want to take</div>
+                  <button className="empty-cta" onClick={() => setActiveTab('browse')}>← Browse Classes</button>
+                </div>
+              ) : (
+                <>
+                  {conflicts.size > 0 && (
+                    <div className="conflict-banner">
+                      ⚠️ Schedule conflict — {conflicts.size} class{conflicts.size > 1 ? 'es' : ''} have overlapping times
+                    </div>
+                  )}
+
+                  <div className="schedule-header">
+                    <div className="schedule-stats">
+                      <span className="stat-item">{selectedClasses.length} class{selectedClasses.length > 1 ? 'es' : ''}</span>
+                      <span className="stat-dot">·</span>
+                      <span className="stat-item">{totalCredits} credit hour{totalCredits !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="schedule-chips">
+                      {selectedClasses.map((sc, i) => (
+                        <span key={i} className="selected-chip">
+                          {sc.SUBJ_CODE && sc.CRSE_NUMB
+                            ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
+                            : `CRN ${sc.CRN}`
+                          } · {sc.SEQ_NUMB}
+                          <button className="chip-remove" onClick={() => toggleClassSelection(sc)} aria-label="Remove">✕</button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="calendar-full">
+                    <ScheduleXCalendar calendarApp={calendar} />
+                  </div>
+
+                  {asyncClasses.length > 0 && (
+                    <div className="async-section">
+                      <h3 className="async-title">Asynchronous & TBA Courses</h3>
+                      <div className="async-grid">
+                        {asyncClasses.map((cls, i) => (
+                          <div key={i} className={`async-card ${courseColorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`) || 'course-0'}`}>
+                            <div className="async-card-header">
+                              <span className="async-code">
+                                {cls.SUBJ_CODE} {cls.CRSE_NUMB}
+                              </span>
+                              <span className="async-sec">Sec {cls.SEQ_NUMB}</span>
+                            </div>
+                            <div className="async-title-text">{cls.CRSE_TITLE}</div>
+                            <div className="async-info">
+                              <span>{cls.CREDIT_HRS} Cr Hrs</span>
+                              <span>·</span>
+                              <span>CRN {cls.CRN}</span>
+                            </div>
+                            <div className="async-times">
+                              {splitByBr(cls.TIMES).join(', ') || 'Online / TBA'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
