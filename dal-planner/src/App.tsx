@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import './App.css'
 import { supabase } from './utils/supabase'
 import { ScheduleXCalendar, useCalendarApp } from '@schedule-x/react'
@@ -10,6 +10,33 @@ function App() {
   const [classes, setClasses] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedClasses, setSelectedClasses] = useState<any[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const filteredClasses = useMemo(() => {
+    if (!searchQuery.trim()) return classes
+    const q = searchQuery.toLowerCase().trim()
+    return classes.filter(cls => {
+      const title = (cls.CRSE_TITLE || '').toLowerCase()
+      const code = `${cls.SUBJ_CODE || ''} ${cls.CRSE_NUMB || ''}`.toLowerCase()
+      const crn = String(cls.CRN || '').toLowerCase()
+      return title.includes(q) || code.includes(q) || crn.includes(q)
+    })
+  }, [classes, searchQuery])
+
+  const highlightMatch = (text: string) => {
+    if (!searchQuery.trim() || !text) return text
+    const q = searchQuery.trim()
+    const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
+    const parts = text.split(regex)
+    if (parts.length === 1) return text
+    return (
+      <>
+        {parts.map((part, i) =>
+          regex.test(part) ? <mark key={i} className="search-highlight">{part}</mark> : part
+        )}
+      </>
+    )
+  }
 
   const toggleClassSelection = useCallback((cls: any) => {
     setSelectedClasses((prev) => {
@@ -135,6 +162,37 @@ function App() {
         <ScheduleXCalendar calendarApp={calendar} />
       </div>
 
+      <div className="search-container">
+        <div className="search-input-wrapper">
+          <svg className="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            id="class-search"
+            type="text"
+            className="search-input"
+            placeholder="Search by course name, code, or CRN..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button
+              className="search-clear"
+              onClick={() => setSearchQuery('')}
+              aria-label="Clear search"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        {searchQuery && (
+          <span className="search-result-count">
+            {filteredClasses.length} {filteredClasses.length === 1 ? 'result' : 'results'}
+          </span>
+        )}
+      </div>
+
       {loading ? (
         <p>Loading...</p>
       ) : classes.length === 0 ? (
@@ -180,7 +238,7 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {classes.slice(0, 20).map((cls, idx) => {
+              {filteredClasses.map((cls, idx) => {
                 const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
                 return (
                   <tr key={idx}>
@@ -192,7 +250,7 @@ function App() {
                       />
                     </td>
                     <td>{cls.NOTE_ROW}</td>
-                    <td>{cls.CRN}</td>
+                    <td>{highlightMatch(String(cls.CRN ?? ''))}</td>
                     <td>{cls.SEQ_NUMB}</td>
                     <td>{cls.CREDIT_HRS}</td>
                     <td>{cls.LINK_CONN}</td>
@@ -201,7 +259,7 @@ function App() {
                     <td>{cls.WEDNESDAYS}</td>
                     <td>{cls.THURSDAYS}</td>
                     <td>{cls.FRIDAYS}</td>
-                    <td>{cls.CRSE_TITLE}</td>
+                    <td>{highlightMatch(cls.CRSE_TITLE ?? '')}</td>
                     <td>{cls.TIMES}</td>
                     <td>{cls.LOCATIONS}</td>
                     <td>{cls.MAX_ENRL}</td>
