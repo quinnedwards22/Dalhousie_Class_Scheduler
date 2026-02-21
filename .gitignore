@@ -1,0 +1,19 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Data files (generated/scraped)
+data.json
+data.csv
+
+# OS files
+.DS_Store
+Thumbs.db
