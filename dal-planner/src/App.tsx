@@ -2,30 +2,187 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import './App.css'
 import { supabase } from './utils/supabase'
 import { ScheduleXCalendar, useCalendarApp } from '@schedule-x/react'
-import { createViewWeek, createViewMonthGrid } from '@schedule-x/calendar'
+import { createViewWeek } from '@schedule-x/calendar'
 import { createEventsServicePlugin } from '@schedule-x/events-service'
 import '@schedule-x/theme-default/dist/calendar.css'
+
+// ── Pure helpers ─────────────────────────────────────────────
+
+const splitByBr = (str: string | undefined | null): string[] => {
+  if (!str) return []
+  return str.split('<br>').map(s => s.trim())
+}
+
+const parseTimes = (timeStr: string) => {
+  if (!timeStr || !timeStr.includes('-')) return null
+  const [startRaw, endRaw] = timeStr.split('-')
+  if (!startRaw || !endRaw || startRaw.length !== 4 || endRaw.length !== 4) return null
+  return {
+    start: `${startRaw.substring(0, 2)}:${startRaw.substring(2, 4)}`,
+    end: `${endRaw.substring(0, 2)}:${endRaw.substring(2, 4)}`,
+  }
+}
+
+const timeToMinutes = (t: string) => {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
+}
+
+const rowTypeClass = (schdType: string) => {
+  if (!schdType) return ''
+  const t = schdType.trim().toLowerCase()
+  if (t === 'lec') return 'row-lec'
+  if (t === 'lab' || t === 'tut') return 'row-lab'
+  return ''
+}
+
+const COLOR_PALETTE = [
+  { main: '#1565c0', container: '#dbeafe', onContainer: '#0d47a1' },
+  { main: '#2e7d32', container: '#dcfce7', onContainer: '#166534' },
+  { main: '#e65100', container: '#ffedd5', onContainer: '#9a3412' },
+  { main: '#7b1fa2', container: '#f3e8ff', onContainer: '#581c87' },
+  { main: '#c62828', container: '#fee2e2', onContainer: '#991b1b' },
+  { main: '#00838f', container: '#cffafe', onContainer: '#155e75' },
+  { main: '#ef6c00', container: '#fff3e0', onContainer: '#e65100' },
+  { main: '#ad1457', container: '#fce7f3', onContainer: '#9d174d' },
+]
+
+const DAY_CONFIG = {
+  SUNDAYS: { letter: 'U', date: '2026-02-15' },
+  MONDAYS: { letter: 'M', date: '2026-02-16' },
+  TUESDAYS: { letter: 'T', date: '2026-02-17' },
+  WEDNESDAYS: { letter: 'W', date: '2026-02-18' },
+  THURSDAYS: { letter: 'R', date: '2026-02-19' },
+  FRIDAYS: { letter: 'F', date: '2026-02-20' },
+  SATURDAYS: { letter: 'S', date: '2026-02-21' },
+} as const
+
+const DAY_LETTER_TO_KEY: Record<string, string> = {
+  U: 'SUNDAYS', M: 'MONDAYS', T: 'TUESDAYS', W: 'WEDNESDAYS', R: 'THURSDAYS', F: 'FRIDAYS', S: 'SATURDAYS',
+}
+
+
+// ── Component ────────────────────────────────────────────────
+
+type Workspace = { id: string; name: string; classes: any[] }
+type AppState = { activeWorkspaceId: string; workspaces: Workspace[] }
+
+const defaultState: AppState = {
+  activeWorkspaceId: '1',
+  workspaces: [{ id: '1', name: 'Plan A', classes: [] }]
+}
 
 function App() {
   const [classes, setClasses] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedClasses, setSelectedClasses] = useState<any[]>([])
+  const [activeTab, setActiveTab] = useState<'browse' | 'schedule'>('browse')
+  const [appState, setAppState] = useState<AppState>(() => {
+    try {
+      const storedV2 = localStorage.getItem('dal-planner-workspaces')
+      if (storedV2) return JSON.parse(storedV2)
+
+      const storedV1 = localStorage.getItem('dal-planner-selected')
+      if (storedV1) {
+        return {
+          activeWorkspaceId: '1',
+          workspaces: [{ id: '1', name: 'Plan A', classes: JSON.parse(storedV1) }]
+        }
+      }
+    } catch (_e) { }
+    return defaultState
+  })
+
+  const activeWorkspace = useMemo(() => appState.workspaces.find(w => w.id === appState.activeWorkspaceId) || appState.workspaces[0], [appState])
+  const selectedClasses = activeWorkspace.classes
+
+  const setSelectedClasses = useCallback((updater: any[] | ((prev: any[]) => any[])) => {
+    setAppState(prev => {
+      const active = prev.workspaces.find(w => w.id === prev.activeWorkspaceId) || prev.workspaces[0]
+      const nextClasses = typeof updater === 'function' ? updater(active.classes) : updater
+      return {
+        ...prev,
+        workspaces: prev.workspaces.map(w => w.id === prev.activeWorkspaceId ? { ...w, classes: nextClasses } : w)
+      }
+    })
+  }, [])
+
+  // Persist selections
+  useEffect(() => {
+    localStorage.setItem('dal-planner-workspaces', JSON.stringify(appState))
+  }, [appState])
+
+  // Workspace helpers
+  const createWorkspace = () => {
+    setAppState(prev => {
+      const newId = String(Date.now())
+      const newName = `Plan ${String.fromCharCode(65 + prev.workspaces.length)}`
+      return {
+        activeWorkspaceId: newId,
+        workspaces: [...prev.workspaces, { id: newId, name: newName, classes: [] }]
+      }
+    })
+  }
+
+  const switchWorkspace = (id: string) => setAppState(prev => ({ ...prev, activeWorkspaceId: id }))
+
+  const deleteWorkspace = (id: string) => {
+    setAppState(prev => {
+      if (prev.workspaces.length <= 1) return prev
+      const nextWorkspaces = prev.workspaces.filter(w => w.id !== id)
+      const nextId = prev.activeWorkspaceId === id ? nextWorkspaces[0].id : prev.activeWorkspaceId
+      return { activeWorkspaceId: nextId, workspaces: nextWorkspaces }
+    })
+  }
+
   const [searchQuery, setSearchQuery] = useState('')
 
-  const filteredClasses = useMemo(() => {
-    if (!searchQuery.trim()) return classes
-    const q = searchQuery.toLowerCase().trim()
-    return classes.filter(cls => {
-      const title = (cls.CRSE_TITLE || '').toLowerCase()
-      const code = `${cls.SUBJ_CODE || ''} ${cls.CRSE_NUMB || ''}`.toLowerCase()
-      const crn = String(cls.CRN || '').toLowerCase()
-      return title.includes(q) || code.includes(q) || crn.includes(q)
-    })
-  }, [classes, searchQuery])
+  // Filter state
+  const [subjectFilter, setSubjectFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [dayFilter, setDayFilter] = useState<Set<string>>(new Set())
+  const [seatsAvailFilter, setSeatsAvailFilter] = useState(false)
+  const [hideCDFilter, setHideCDFilter] = useState(false)
 
-  // Group filtered classes by course (SUBJ_CODE + CRSE_NUMB)
+  // ── Derived data ──────────────────────────────────────────
+
+  const uniqueSubjects = useMemo(() => {
+    const subjects = new Set(classes.map(c => c.SUBJ_CODE).filter(Boolean))
+    return Array.from(subjects).sort()
+  }, [classes])
+
+  const filteredClasses = useMemo(() => {
+    return classes.filter(cls => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim()
+        const title = (cls.CRSE_TITLE || '').toLowerCase()
+        const code = `${cls.SUBJ_CODE || ''} ${cls.CRSE_NUMB || ''}`.toLowerCase()
+        const crn = String(cls.CRN || '').toLowerCase()
+        if (!title.includes(q) && !code.includes(q) && !crn.includes(q)) return false
+      }
+      if (subjectFilter && cls.SUBJ_CODE !== subjectFilter) return false
+      if (typeFilter && (cls.SCHD_TYPE || '').toLowerCase() !== typeFilter.toLowerCase()) return false
+      if (dayFilter.size > 0) {
+        const meetsAnyDay = Array.from(dayFilter).some(d => {
+          const key = DAY_LETTER_TO_KEY[d]
+          if (!key) return false
+          const vals = splitByBr(cls[key])
+          return vals.some((v: string) => v.trim() !== '')
+        })
+        if (!meetsAnyDay) return false
+      }
+      if (seatsAvailFilter) {
+        const seats = Number(cls.SEATS)
+        if (isNaN(seats) || seats <= 0) return false
+      }
+      if (hideCDFilter && (cls.TIMES || '').trim().toUpperCase() === 'C/D') {
+        return false
+      }
+      return true
+    })
+  }, [classes, searchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter])
+
   const groupedClasses = useMemo(() => {
-    const groups: { key: string; code: string; title: string; termInfo: string; sections: any[] }[] = []
+    const groups: { key: string; code: string; title: string; termInfo: string; equiv: string; sections: any[] }[] = []
     const map = new Map<string, number>()
     filteredClasses.forEach(cls => {
       const key = `${cls.SUBJ_CODE || ''}-${cls.CRSE_NUMB || ''}`
@@ -40,6 +197,7 @@ function App() {
           code: `${cls.SUBJ_CODE || ''} ${cls.CRSE_NUMB || ''}`,
           title: cls.CRSE_TITLE || '',
           termInfo: dates ? termLabel : '',
+          equiv: cls.CRSE_EQUIV || '',
           sections: [],
         })
       }
@@ -48,27 +206,87 @@ function App() {
     return groups
   }, [filteredClasses])
 
+  // ── Conflict detection ────────────────────────────────────
+
+  const conflicts = useMemo(() => {
+    const conflictMap = new Map<string, string[]>()
+    const dayKeys = ['SUNDAYS', 'MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS', 'SATURDAYS']
+    const classSlots = selectedClasses.map(cls => {
+      const timesArr = splitByBr(cls.TIMES)
+      const slots: { day: string; start: number; end: number }[] = []
+      timesArr.forEach((timeStr: string, idx: number) => {
+        const times = parseTimes(timeStr)
+        if (!times) return
+        const startMin = timeToMinutes(times.start)
+        const endMin = timeToMinutes(times.end)
+        dayKeys.forEach(dayKey => {
+          const dayVals = splitByBr(cls[dayKey])
+          if (dayVals[idx]?.trim()) {
+            slots.push({ day: dayKey, start: startMin, end: endMin })
+          }
+        })
+      })
+      return { cls, slots, id: `${cls.CRN}-${cls.SEQ_NUMB}` }
+    })
+    for (let i = 0; i < classSlots.length; i++) {
+      for (let j = i + 1; j < classSlots.length; j++) {
+        const a = classSlots[i]
+        const b = classSlots[j]
+        for (const slotA of a.slots) {
+          for (const slotB of b.slots) {
+            if (slotA.day === slotB.day && slotA.start < slotB.end && slotB.start < slotA.end) {
+              const aName = a.cls.SUBJ_CODE ? `${a.cls.SUBJ_CODE} ${a.cls.CRSE_NUMB} ${a.cls.SCHD_TYPE || ''}`.trim() : `CRN ${a.cls.CRN}`
+              const bName = b.cls.SUBJ_CODE ? `${b.cls.SUBJ_CODE} ${b.cls.CRSE_NUMB} ${b.cls.SCHD_TYPE || ''}`.trim() : `CRN ${b.cls.CRN}`
+
+              if (!conflictMap.has(a.id)) conflictMap.set(a.id, [])
+              if (!conflictMap.get(a.id)!.includes(bName)) conflictMap.get(a.id)!.push(bName)
+
+              if (!conflictMap.has(b.id)) conflictMap.set(b.id, [])
+              if (!conflictMap.get(b.id)!.includes(aName)) conflictMap.get(b.id)!.push(aName)
+            }
+          }
+        }
+      }
+    }
+    return conflictMap
+  }, [selectedClasses])
+
+  // ── Incompatible Link Connection ──────────────────────────
+
+  const incompatibleLinks = useMemo(() => {
+    const invalid = new Set<string>()
+    const courseLinkPrefixes = new Map<string, Set<string>>()
+
+    selectedClasses.forEach(cls => {
+      if (!cls.LINK_CONN || cls.LINK_CONN.length < 2) return
+      const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`
+      const prefix = cls.LINK_CONN.charAt(0)
+      if (!courseLinkPrefixes.has(courseKey)) courseLinkPrefixes.set(courseKey, new Set())
+      courseLinkPrefixes.get(courseKey)!.add(prefix)
+    })
+
+    filteredClasses.forEach(cls => {
+      if (!cls.LINK_CONN || cls.LINK_CONN.length < 2) return
+      const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`
+      const selectedPrefixes = courseLinkPrefixes.get(courseKey)
+      if (selectedPrefixes && selectedPrefixes.size > 0) {
+        const myPrefix = cls.LINK_CONN.charAt(0)
+        if (!selectedPrefixes.has(myPrefix)) {
+          invalid.add(`${cls.CRN}-${cls.SEQ_NUMB}`)
+        }
+      }
+    })
+
+    return invalid
+  }, [selectedClasses, filteredClasses])
+
+  const totalCredits = useMemo(() => {
+    return selectedClasses.reduce((sum, cls) => sum + (Number(cls.CREDIT_HRS) || 0), 0)
+  }, [selectedClasses])
 
 
-  // Format days into compact string
-  const formatDays = (cls: any) => {
-    const parts: string[] = []
-    if (cls.MONDAYS?.trim()) parts.push('M')
-    if (cls.TUESDAYS?.trim()) parts.push('T')
-    if (cls.WEDNESDAYS?.trim()) parts.push('W')
-    if (cls.THURSDAYS?.trim()) parts.push('R')
-    if (cls.FRIDAYS?.trim()) parts.push('F')
-    return parts.join('') || ''
-  }
 
-  // Row class based on schedule type (Lec vs Lab/Tut)
-  const rowTypeClass = (schdType: string) => {
-    if (!schdType) return ''
-    const t = schdType.trim().toLowerCase()
-    if (t === 'lec') return 'row-lec'
-    if (t === 'lab' || t === 'tut') return 'row-lab'
-    return ''
-  }
+  // ── Callbacks ─────────────────────────────────────────────
 
   const highlightMatch = (text: string) => {
     if (!searchQuery.trim() || !text) return text
@@ -95,163 +313,317 @@ function App() {
     })
   }, [])
 
-  const [eventsService] = useState(() => createEventsServicePlugin())
+  const toggleDayFilter = useCallback((day: string) => {
+    setDayFilter(prev => {
+      const next = new Set(prev)
+      next.has(day) ? next.delete(day) : next.add(day)
+      return next
+    })
+  }, [])
 
-  // Map day columns to a date in the current week (Mon Feb 16 – Fri Feb 20, 2026)
-  const DAY_CONFIG = {
-    MONDAYS: { letter: 'M', date: '2026-02-16' },
-    TUESDAYS: { letter: 'T', date: '2026-02-17' },
-    WEDNESDAYS: { letter: 'W', date: '2026-02-18' },
-    THURSDAYS: { letter: 'R', date: '2026-02-19' },
-    FRIDAYS: { letter: 'F', date: '2026-02-20' },
-  } as const
+  const clearFilters = useCallback(() => {
+    setSubjectFilter('')
+    setTypeFilter('')
+    setDayFilter(new Set())
+    setSeatsAvailFilter(false)
+    setHideCDFilter(false)
+  }, [])
 
-  // Parse "HHMM-HHMM" (e.g. "1305-1425") into start/end time strings for Temporal
-  const parseTimes = (timeStr: string) => {
-    if (!timeStr || !timeStr.includes('-')) return null
-    const [startRaw, endRaw] = timeStr.split('-')
-    if (!startRaw || !endRaw || startRaw.length !== 4 || endRaw.length !== 4) return null
-    const startTime = `${startRaw.substring(0, 2)}:${startRaw.substring(2, 4)}`
-    const endTime = `${endRaw.substring(0, 2)}:${endRaw.substring(2, 4)}`
-    return { start: startTime, end: endTime }
-  }
+  const hasActiveFilters = subjectFilter || typeFilter || dayFilter.size > 0 || seatsAvailFilter || hideCDFilter
 
-  const calendar = useCalendarApp({
-    views: [
-      createViewWeek(),
-    ],
-    dayBoundaries: {
-      start: '07:00',
-      end: '21:00',
-    },
-    weekOptions: {
-      gridHeight: 700,
-      nDays: 5,
-      eventWidth: 95,
-      eventOverlap: true,
-    },
-    events: [],
-    plugins: [eventsService],
-    selectedDate: Temporal.PlainDate.from('2026-02-20'),
-  })
+  const activeFilterLabels = useMemo(() => {
+    const labels: string[] = []
+    if (subjectFilter) labels.push(subjectFilter)
+    if (typeFilter) labels.push(typeFilter.toUpperCase())
+    if (dayFilter.size > 0) labels.push(Array.from(dayFilter).join(''))
+    if (seatsAvailFilter) labels.push('Available')
+    if (hideCDFilter) labels.push('No C/D')
+    return labels
+  }, [subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter])
 
-  useEffect(() => {
-    const events: any[] = []
+  // ── Calendar state data ───────────────────────────────────
+
+  const { calendarEvents, asyncClasses, minTime, maxTime, hasWeekend, courseColorMap } = useMemo(() => {
+    const evs: any[] = []
+    const asyncCls: any[] = []
+    let earliest = 480 // 8:00 AM in mins
+    let latest = 1020 // 17:00 in mins
+    let weekend = false
+
+    const colorMap = new Map<string, string>()
+    let colorIdx = 0
+    selectedClasses.forEach(cls => {
+      const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`
+      if (!colorMap.has(courseKey)) {
+        colorMap.set(courseKey, `course-${colorIdx % COLOR_PALETTE.length}`)
+        colorIdx++
+      }
+    })
 
     selectedClasses.forEach(cls => {
-      const times = parseTimes(cls.TIMES)
-      if (!times) return
+      const timesArr = splitByBr(cls.TIMES)
+      const validTimes = timesArr.filter(t => t.includes('-'))
+      if (validTimes.length === 0) {
+        asyncCls.push(cls)
+        return
+      }
 
-      const dayKeys = ['MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS'] as const
-      dayKeys.forEach(dayKey => {
-        const config = DAY_CONFIG[dayKey]
-        // Data uses the day letter (M, T, W, R, F) when the class meets that day
-        if (cls[dayKey] && cls[dayKey].trim() !== '') {
-          const startStr = `${config.date}T${times.start}:00[UTC]`
-          const endStr = `${config.date}T${times.end}:00[UTC]`
-          events.push({
-            id: `${cls.CRN}-${cls.SEQ_NUMB}-${dayKey}`,
-            title: cls.SUBJ_CODE && cls.CRSE_NUMB
-              ? `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}${cls.CRSE_TITLE ? ' - ' + cls.CRSE_TITLE : ''}`
-              : cls.CRSE_TITLE || `CRN ${cls.CRN}`,
-            start: Temporal.ZonedDateTime.from(startStr),
-            end: Temporal.ZonedDateTime.from(endStr),
-          })
-        }
+      const mondaysArr = splitByBr(cls.MONDAYS)
+      const tuesdaysArr = splitByBr(cls.TUESDAYS)
+      const wednesdaysArr = splitByBr(cls.WEDNESDAYS)
+      const thursdaysArr = splitByBr(cls.THURSDAYS)
+      const fridaysArr = splitByBr(cls.FRIDAYS)
+      const saturdaysArr = splitByBr(cls.SATURDAYS)
+      const sundaysArr = splitByBr(cls.SUNDAYS)
+
+      const wlistCnt = Number(cls.WLIST) || 0;
+      const isWaitlisted = Number(cls.SEATS) <= 0 && wlistCnt > 0;
+      const calendarId = isWaitlisted ? 'waitlist' : (colorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`) || 'course-0')
+
+      timesArr.forEach((timeStr: string, idx: number) => {
+        const times = parseTimes(timeStr)
+        if (!times) return
+        const startMin = timeToMinutes(times.start)
+        const endMin = timeToMinutes(times.end)
+        earliest = Math.min(earliest, startMin)
+        latest = Math.max(latest, endMin)
+
+        const dayKeys = ['SUNDAYS', 'MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS', 'SATURDAYS'] as const
+        const dayArrs = [sundaysArr, mondaysArr, tuesdaysArr, wednesdaysArr, thursdaysArr, fridaysArr, saturdaysArr]
+        dayKeys.forEach((dayKey, i) => {
+          const config = DAY_CONFIG[dayKey]
+          const dayVal = dayArrs[i][idx]
+          if (dayVal && dayVal.trim() !== '') {
+            if (dayKey === 'SATURDAYS' || dayKey === 'SUNDAYS') weekend = true
+            const startStr = `${config.date}T${times.start}:00[UTC]`
+            const endStr = `${config.date}T${times.end}:00[UTC]`
+            evs.push({
+              id: `${cls.CRN}-${cls.SEQ_NUMB}-${dayKey}-${idx}`,
+              title: cls.SUBJ_CODE && cls.CRSE_NUMB
+                ? `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}${cls.CRSE_TITLE ? ' - ' + cls.CRSE_TITLE : ''}`
+                : cls.CRSE_TITLE || `CRN ${cls.CRN}`,
+              start: Temporal.ZonedDateTime.from(startStr),
+              end: Temporal.ZonedDateTime.from(endStr),
+              calendarId,
+              isWaitlist: isWaitlisted
+            })
+          }
+        })
       })
     })
 
-    console.log(`Setting ${events.length} events from ${selectedClasses.length} selected classes`)
-    eventsService.set(events)
-  }, [selectedClasses, eventsService])
+    const padE = Math.max(0, earliest - 60)
+    const padL = Math.min(1440, latest + 60)
+    const fmt = (m: number) => `${Math.floor(m / 60).toString().padStart(2, '0')}:${(m % 60).toString().padStart(2, '0')}`
+
+    return { calendarEvents: evs, asyncClasses: asyncCls, minTime: fmt(padE), maxTime: fmt(padL), hasWeekend: weekend, courseColorMap: colorMap }
+  }, [selectedClasses])
+
+  // ── Calendar App Setup ────────────────────────────────────
+
+  const [eventsService] = useState(() => createEventsServicePlugin())
+
+  const calendar = useCalendarApp({
+    views: [createViewWeek()],
+    dayBoundaries: { start: minTime, end: maxTime },
+    weekOptions: { gridHeight: 800, nDays: hasWeekend ? 7 : 5 },
+    events: [],
+    plugins: [eventsService],
+    selectedDate: Temporal.PlainDate.from(hasWeekend ? '2026-02-15' : '2026-02-16'),
+    calendars: {
+      ...Object.fromEntries(
+        COLOR_PALETTE.map((c, i) => [`course-${i}`, {
+          colorName: `course-${i}`,
+          lightColors: c,
+          darkColors: c,
+        }])
+      ),
+      waitlist: {
+        colorName: 'waitlist',
+        lightColors: { main: '#9CA3AF', container: '#F3F4F6', onContainer: '#4B5563' },
+        darkColors: { main: '#9CA3AF', container: '#F3F4F6', onContainer: '#4B5563' }
+      }
+    },
+  })
+
+  useEffect(() => {
+    eventsService.set(calendarEvents)
+  }, [calendarEvents, eventsService])
+
+  // ── Fetch data ────────────────────────────────────────────
 
   useEffect(() => {
     async function getClasses() {
       const { data: CLASSES, error } = await supabase
-        .from('CLASSES')
+        .from('dalhousie_classes')
         .select(`
-          SUBJ_CODE, CRSE_NUMB, NOTE_ROW, CRN, SEQ_NUMB, SCHD_TYPE,
-          CREDIT_HRS, LINK_CONN, 
-          MONDAYS, TUESDAYS, WEDNESDAYS, THURSDAYS, FRIDAYS, CRSE_TITLE,
-          TIMES, LOCATIONS, MAX_ENRL, ENRL, SEATS, WLIST, 
-          PERC_FULL, XLIST_MAX, XLIST_CUR, INSTRUCTORS, 
-          TUITION_CODE, BILL_HRS, NOTE_BOTTOM,
-          TERM_CODE, PTRM_CODE, START_DATE, END_DATE
+          subj_code, crse_numb, note_row, crn, seq_numb, schd_type,
+          credit_hrs, link_conn, 
+          mondays, tuesdays, wednesdays, thursdays, fridays, saturdays, sundays, crse_title,
+          times, locations, max_enrl, enrl, seats, wlist,
+          perc_full, xlist_max, xlist_cur, instructors, 
+          tuition_code, bill_hrs, note_bottom, crse_equiv,
+          term_code, ptrm_code, start_date, end_date
         `)
-
-
 
       if (error) {
         console.error('Error fetching classes:', error)
       } else if (CLASSES && CLASSES.length > 0) {
-        setClasses(CLASSES)
+        const upperClasses = CLASSES.map((c: any) => {
+          const upperC: any = {}
+          for (const key in c) {
+            upperC[key.toUpperCase()] = c[key]
+          }
+          return upperC
+        })
+        setClasses(upperClasses)
+        setSelectedClasses(prev => {
+          if (prev.length === 0) return prev
+          const crnSet = new Set(upperClasses.map((c: any) => `${c.CRN}-${c.SEQ_NUMB}`))
+          const valid = prev.filter((c: any) => crnSet.has(`${c.CRN}-${c.SEQ_NUMB}`))
+          return valid.length === prev.length ? prev : valid
+        })
       }
       setLoading(false)
     }
-
     getClasses()
   }, [])
 
-  const seatsClass = (seats: number | string | null | undefined) => {
-    if (seats == null || seats === '') return ''
-    const n = Number(seats)
-    if (n > 0) return 'seats-positive'
-    if (n <= 0) return 'seats-zero'
-    return ''
-  }
 
-  // Dynamic color for %Full column
-  const percFullClass = (pf: string | null | undefined) => {
-    if (!pf) return ''
-    const n = parseFloat(pf)
-    if (isNaN(n)) return ''
-    if (n >= 95) return 'pf-critical'
-    if (n >= 80) return 'pf-high'
-    if (n >= 50) return 'pf-mid'
-    return 'pf-low'
-  }
+
+  // ── Render ────────────────────────────────────────────────
 
   return (
     <div className="app-container">
+      {/* ── Header ── */}
       <header className="app-header">
-        <h1>DAL Planner</h1>
-        <span className="dal-badge">2025–26</span>
+        <div className="header-title-container">
+          <h1>DAL Planner</h1>
+          <span className="dal-badge">2025–26</span>
+        </div>
+
+        <div className="workspace-selector">
+          <select
+            value={appState.activeWorkspaceId}
+            onChange={e => {
+              if (e.target.value === 'NEW') createWorkspace()
+              else switchWorkspace(e.target.value)
+            }}
+          >
+            {appState.workspaces.map(w => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+            <option value="NEW">+ New Plan...</option>
+          </select>
+          {appState.workspaces.length > 1 && (
+            <button className="workspace-delete" onClick={() => deleteWorkspace(appState.activeWorkspaceId)} title="Delete Plan">
+              ✕
+            </button>
+          )}
+        </div>
+
+        {/* Tabs */}
+        <nav className="header-tabs">
+          <button
+            className={`header-tab ${activeTab === 'browse' ? 'active' : ''}`}
+            onClick={() => setActiveTab('browse')}
+          >
+            Browse Classes
+          </button>
+          <button
+            className={`header-tab ${activeTab === 'schedule' ? 'active' : ''}`}
+            onClick={() => setActiveTab('schedule')}
+          >
+            My Schedule
+            {selectedClasses.length > 0 && (
+              <span className="tab-badge">{selectedClasses.length}</span>
+            )}
+          </button>
+        </nav>
+
+        <div className="header-spacer" />
+        {conflicts.size > 0 && (
+          <span className="header-conflict">⚠️ {conflicts.size} conflict{conflicts.size > 1 ? 's' : ''}</span>
+        )}
+        {selectedClasses.length > 0 && (
+          <span className="header-credits">{totalCredits} cr hrs</span>
+        )}
       </header>
 
-      <div className="app-body">
-        {/* ── Left panel: search + class table ── */}
-        <div className="left-panel">
-          <div className="search-container">
-            <div className="search-input-wrapper">
-              <svg className="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              <input
-                id="class-search"
-                type="text"
-                className="search-input"
-                placeholder="Search by course name, code, or CRN..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-              />
+      {/* ══════════ BROWSE TAB ══════════ */}
+      {activeTab === 'browse' && (
+        <div className="tab-content browse-tab">
+          {/* Toolbar */}
+          <div className="toolbar">
+            <div className="toolbar-search-row">
+              <div className="search-input-wrapper">
+                <svg className="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  id="class-search"
+                  type="text"
+                  className="search-input"
+                  placeholder="Search by course name, code, or CRN..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button className="search-clear" onClick={() => setSearchQuery('')} aria-label="Clear search">✕</button>
+                )}
+              </div>
               {searchQuery && (
-                <button
-                  className="search-clear"
-                  onClick={() => setSearchQuery('')}
-                  aria-label="Clear search"
-                >
-                  ✕
-                </button>
+                <span className="search-result-count">
+                  {filteredClasses.length} {filteredClasses.length === 1 ? 'result' : 'results'}
+                </span>
               )}
             </div>
-            {searchQuery && (
-              <span className="search-result-count">
-                {filteredClasses.length} {filteredClasses.length === 1 ? 'result' : 'results'}
-              </span>
-            )}
+            <div className="toolbar-filter-row">
+              <select value={subjectFilter} onChange={e => setSubjectFilter(e.target.value)} className="filter-select">
+                <option value="">All Subjects</option>
+                {uniqueSubjects.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="filter-select">
+                <option value="">All Types</option>
+                <option value="lec">Lecture</option>
+                <option value="lab">Lab</option>
+                <option value="tut">Tutorial</option>
+              </select>
+              <div className="day-toggles">
+                {['M', 'T', 'W', 'R', 'F'].map(d => (
+                  <button
+                    key={d}
+                    className={`day-toggle ${dayFilter.has(d) ? 'active' : ''}`}
+                    onClick={() => toggleDayFilter(d)}
+                  >{d}</button>
+                ))}
+              </div>
+              <button
+                className={`filter-toggle ${seatsAvailFilter ? 'active' : ''}`}
+                onClick={() => setSeatsAvailFilter(v => !v)}
+              >Available Only</button>
+              <button
+                className={`filter-toggle ${hideCDFilter ? 'active' : ''}`}
+                onClick={() => setHideCDFilter(v => !v)}
+              >Hide C/D</button>
+              {hasActiveFilters && (
+                <button className="filter-clear" onClick={clearFilters}>Clear Filters</button>
+              )}
+            </div>
           </div>
 
+          {activeFilterLabels.length > 0 && (
+            <div className="active-filters-bar">
+              <span className="active-filters-label">Filtering:</span>
+              {activeFilterLabels.map((label, i) => (
+                <span key={i} className="active-filter-tag">{label}</span>
+              ))}
+              {searchQuery && <span className="active-filter-tag">"{searchQuery}"</span>}
+            </div>
+          )}
+
+          {/* Table */}
           {loading ? (
             <p className="loading-text">Loading classes…</p>
           ) : classes.length === 0 ? (
@@ -275,120 +647,247 @@ function App() {
                     <th className="th-day">F</th>
                     <th>Times</th>
                     <th>Location</th>
-                    <th>Max</th>
-                    <th>Cur</th>
-                    <th>Avail</th>
-                    <th>%Full</th>
+                    <th className="th-avail">Availability</th>
                     <th>Instructor</th>
-                    <th>Cr<br />Hrs</th>
                   </tr>
                 </thead>
                 <tbody>
                   {groupedClasses.map(group => (
-                    <>
-                      {/* Course header row */}
-                      <tr key={group.key} className="course-header">
-                        <td colSpan={20}>
+                    <React.Fragment key={group.key}>
+                      <tr className="course-header">
+                        <td colSpan={19}>
                           <div className="course-header-inner">
                             <span>
                               <span className="course-code">{highlightMatch(group.code)}</span>
                               <span className="course-title">{highlightMatch(group.title)}</span>
+                              {group.equiv && <span className="course-equiv">Also offered as {highlightMatch(group.equiv)}</span>}
                             </span>
                             {group.termInfo && <span className="course-term">{group.termInfo}</span>}
                           </div>
                         </td>
                       </tr>
-                      {/* Section rows */}
                       {group.sections.map((cls, idx) => {
                         const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
                         const noteVal = (cls.NOTE_ROW || '').trim()
                         const noteBottom = (cls.NOTE_BOTTOM || '').trim()
+                        const conflictList = conflicts.get(`${cls.CRN}-${cls.SEQ_NUMB}`)
+                        const hasConflict = !!conflictList
+                        const isInvalidLink = incompatibleLinks.has(`${cls.CRN}-${cls.SEQ_NUMB}`)
                         return (
                           <React.Fragment key={`${group.key}-${idx}`}>
                             <tr
                               className={[
                                 isSelected ? 'row-selected' : '',
                                 rowTypeClass(cls.SCHD_TYPE),
+                                hasConflict ? 'row-conflict' : '',
+                                cls.TIMES === 'C/D' ? 'row-dimmed' : '',
+                                isInvalidLink ? 'row-incompatible' : '',
+                                noteBottom ? 'row-has-note' : '',
                               ].filter(Boolean).join(' ')}
                             >
                               <td className="cell-note">{noteVal}</td>
                               <td className="cell-select">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => toggleClassSelection(cls)}
-                                />
+                                {(() => {
+                                  const isWlist = Number(cls.SEATS) <= 0 && Number(cls.WLIST) > 0;
+                                  return (
+                                    <label className={`select-label ${isWlist ? 'is-wlist' : ''}`} title={isInvalidLink ? 'Link combo incompatible' : (isWlist ? 'Full - Join Waitlist' : 'Select Class')}>
+                                      <input type="checkbox" checked={isSelected} disabled={isInvalidLink} onChange={() => toggleClassSelection(cls)} />
+                                      {isWlist && !isInvalidLink && <span className="wlist-badge">Waitlist</span>}
+                                    </label>
+                                  )
+                                })()}
                               </td>
                               <td>{highlightMatch(String(cls.CRN ?? ''))}</td>
                               <td>{cls.SEQ_NUMB}</td>
                               <td>{cls.SCHD_TYPE || 'Lec'}</td>
                               <td>{cls.CREDIT_HRS}</td>
-                              <td>{cls.LINK_CONN}</td>
-                              <td className={cls.MONDAYS?.trim() ? 'day-active' : 'day-empty'}>{cls.MONDAYS}</td>
-                              <td className={cls.TUESDAYS?.trim() ? 'day-active' : 'day-empty'}>{cls.TUESDAYS}</td>
-                              <td className={cls.WEDNESDAYS?.trim() ? 'day-active' : 'day-empty'}>{cls.WEDNESDAYS}</td>
-                              <td className={cls.THURSDAYS?.trim() ? 'day-active' : 'day-empty'}>{cls.THURSDAYS}</td>
-                              <td className={cls.FRIDAYS?.trim() ? 'day-active' : 'day-empty'}>{cls.FRIDAYS}</td>
-                              <td className="cell-times">{cls.TIMES}</td>
-                              <td className="cell-location">{cls.LOCATIONS}</td>
-                              <td>{cls.MAX_ENRL}</td>
-                              <td>{cls.ENRL}</td>
-                              <td className={seatsClass(cls.SEATS)}>{cls.SEATS}</td>
-                              <td className={percFullClass(cls.PERC_FULL)}>{cls.PERC_FULL}</td>
-                              <td className="cell-instructor">{cls.INSTRUCTORS}</td>
-                              <td>{cls.BILL_HRS}</td>
+                              <td className="cell-narrow">{cls.LINK_CONN}</td>
+                              <td>
+                                {splitByBr(cls.MONDAYS).map((val, i) => (
+                                  <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                ))}
+                              </td>
+                              <td>
+                                {splitByBr(cls.TUESDAYS).map((val, i) => (
+                                  <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                ))}
+                              </td>
+                              <td>
+                                {splitByBr(cls.WEDNESDAYS).map((val, i) => (
+                                  <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                ))}
+                              </td>
+                              <td>
+                                {splitByBr(cls.THURSDAYS).map((val, i) => (
+                                  <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                ))}
+                              </td>
+                              <td>
+                                {splitByBr(cls.FRIDAYS).map((val, i) => (
+                                  <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                ))}
+                              </td>
+                              <td className="cell-times">
+                                {splitByBr(cls.TIMES).map((t, i) => <div key={i} className="sub-row">{t}</div>)}
+                              </td>
+                              <td className="cell-location">
+                                {splitByBr(cls.LOCATIONS).map((l, i) => <div key={i} className="sub-row">{l}</div>)}
+                              </td>
+                              <td className="cell-avail">
+                                {(() => {
+                                  const seats = Number(cls.SEATS) || 0;
+                                  const max = Number(cls.MAX_ENRL) || 0;
+                                  const enrl = Number(cls.ENRL) || 0;
+                                  const wlist = Number(cls.WLIST) || 0;
+                                  const pct = max > 0 ? (enrl / max) * 100 : 0;
+
+                                  if (seats <= 0 && wlist > 0) {
+                                    return (
+                                      <div className="avail-wrapper">
+                                        <div className="avail-text wlist-text">Class Full — Waitlist: {wlist}</div>
+                                        <div className="avail-bar-bg"><div className="avail-bar-fill wlist-fill" style={{ width: `100%` }} /></div>
+                                      </div>
+                                    )
+                                  }
+                                  return (
+                                    <div className="avail-wrapper">
+                                      <div className="avail-text">{Math.max(0, seats)} seats left ({enrl}/{max})</div>
+                                      <div className="avail-bar-bg"><div className="avail-bar-fill" style={{ width: `${Math.min(100, pct)}%`, backgroundColor: pct >= 95 ? '#dc2626' : pct >= 80 ? '#d97706' : '#16a34a' }} /></div>
+                                    </div>
+                                  )
+                                })()}
+                              </td>
+                              <td className="cell-instructor">
+                                {splitByBr(cls.INSTRUCTORS).map((inst, i) => <div key={i} className="sub-row">{inst}</div>)}
+                              </td>
                             </tr>
+                            {hasConflict && (
+                              <tr className="row-conflict-detail">
+                                <td className="cell-note"></td>
+                                <td colSpan={15} className="conflict-detail-text">⚠️ Conflicts with {conflictList?.join(', ')}</td>
+                                <td></td>
+                              </tr>
+                            )}
                             {noteBottom && (
                               <tr className="row-note">
-                                <td className="cell-note cell-note-label">NOTE</td>
-                                <td colSpan={19} className="cell-note-text">{noteBottom}</td>
+                                <td className="cell-note cell-note-label">↳ NOTE</td>
+                                <td colSpan={18} className="cell-note-text">{noteBottom}</td>
                               </tr>
                             )}
                           </React.Fragment>
                         )
                       })}
-                    </>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-        </div>
 
-        {/* ── Right panel: selected classes + calendar ── */}
-        <div className="right-panel">
-          <div className="right-panel-sticky">
-            {selectedClasses.length > 0 && (
-              <div className="selected-bar">
-                <strong>Selected ({selectedClasses.length}):</strong>
-                <div className="selected-chips">
+          {/* ── Mini Preview Bar (sticky bottom) ── */}
+          {selectedClasses.length > 0 && (
+            <div className="mini-preview">
+              <div className="mini-preview-info">
+                <span className="mini-preview-count">{selectedClasses.length} class{selectedClasses.length > 1 ? 'es' : ''}</span>
+                <span className="mini-preview-dot">·</span>
+                <span className="mini-preview-credits">{totalCredits} credit hr{totalCredits !== 1 ? 's' : ''}</span>
+                {conflicts.size > 0 && (
+                  <>
+                    <span className="mini-preview-dot">·</span>
+                    <span className="mini-preview-conflict">⚠️ {conflicts.size} conflict{conflicts.size > 1 ? 's' : ''}</span>
+                  </>
+                )}
+              </div>
+              <div className="mini-preview-chips">
+                {selectedClasses.map((sc, i) => (
+                  <span key={i} className="mini-chip">
+                    {sc.SUBJ_CODE && sc.CRSE_NUMB
+                      ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
+                      : `CRN ${sc.CRN}`}
+                    <button className="chip-remove" onClick={() => toggleClassSelection(sc)} aria-label="Remove">✕</button>
+                  </span>
+                ))}
+              </div>
+              <button className="mini-preview-cta" onClick={() => setActiveTab('schedule')}>
+                View Schedule →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════ SCHEDULE TAB ══════════ */}
+      {activeTab === 'schedule' && (
+        <div className="tab-content schedule-tab">
+          {selectedClasses.length === 0 ? (
+            <div className="schedule-empty">
+              <div className="empty-icon">📅</div>
+              <div className="empty-title">No classes selected</div>
+              <div className="empty-hint">Go to Browse Classes and check the boxes next to classes you want to take</div>
+              <button className="empty-cta" onClick={() => setActiveTab('browse')}>← Browse Classes</button>
+            </div>
+          ) : (
+            <>
+              {conflicts.size > 0 && (
+                <div className="conflict-banner">
+                  ⚠️ Schedule conflict — {conflicts.size} class{conflicts.size > 1 ? 'es' : ''} have overlapping times
+                </div>
+              )}
+
+              <div className="schedule-header">
+                <div className="schedule-stats">
+                  <span className="stat-item">{selectedClasses.length} class{selectedClasses.length > 1 ? 'es' : ''}</span>
+                  <span className="stat-dot">·</span>
+                  <span className="stat-item">{totalCredits} credit hour{totalCredits !== 1 ? 's' : ''}</span>
+                </div>
+                <div className="schedule-chips">
                   {selectedClasses.map((sc, i) => (
                     <span key={i} className="selected-chip">
                       {sc.SUBJ_CODE && sc.CRSE_NUMB
                         ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
                         : `CRN ${sc.CRN}`
                       } · {sc.SEQ_NUMB}
+                      <button className="chip-remove" onClick={() => toggleClassSelection(sc)} aria-label="Remove">✕</button>
                     </span>
                   ))}
                 </div>
               </div>
-            )}
 
-            <div className="right-panel-label">Your Schedule</div>
-            <div className="calendar-wrapp  er">
-              <ScheduleXCalendar calendarApp={calendar} />
-            </div>
-
-            {selectedClasses.length === 0 && (
-              <div className="calendar-empty-state">
-                <div className="empty-icon">📅</div>
-                Select classes from the table to build your schedule
+              <div className="calendar-full">
+                <ScheduleXCalendar calendarApp={calendar} />
               </div>
-            )}
-          </div>
+
+              {asyncClasses.length > 0 && (
+                <div className="async-section">
+                  <h3 className="async-title">Asynchronous & TBA Courses</h3>
+                  <div className="async-grid">
+                    {asyncClasses.map((cls, i) => (
+                      <div key={i} className={`async-card ${courseColorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`) || 'course-0'}`}>
+                        <div className="async-card-header">
+                          <span className="async-code">
+                            {cls.SUBJ_CODE} {cls.CRSE_NUMB}
+                          </span>
+                          <span className="async-sec">Sec {cls.SEQ_NUMB}</span>
+                        </div>
+                        <div className="async-title-text">{cls.CRSE_TITLE}</div>
+                        <div className="async-info">
+                          <span>{cls.CREDIT_HRS} Cr Hrs</span>
+                          <span>·</span>
+                          <span>CRN {cls.CRN}</span>
+                        </div>
+                        <div className="async-times">
+                          {splitByBr(cls.TIMES).join(', ') || 'Online / TBA'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
-      </div>
-    </div >
+      )}
+    </div>
   )
 }
 
