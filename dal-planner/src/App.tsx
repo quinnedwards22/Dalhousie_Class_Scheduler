@@ -1,0 +1,228 @@
+import { useEffect, useState, useCallback } from 'react'
+import './App.css'
+import { supabase } from './utils/supabase'
+import { ScheduleXCalendar, useCalendarApp } from '@schedule-x/react'
+import { createViewWeek, createViewMonthGrid } from '@schedule-x/calendar'
+import { createEventsServicePlugin } from '@schedule-x/events-service'
+import '@schedule-x/theme-default/dist/calendar.css'
+
+function App() {
+  const [classes, setClasses] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedClasses, setSelectedClasses] = useState<any[]>([])
+
+  const toggleClassSelection = useCallback((cls: any) => {
+    setSelectedClasses((prev) => {
+      const isSelected = prev.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
+      if (isSelected) {
+        return prev.filter(c => !(c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB))
+      }
+      return [...prev, cls]
+    })
+  }, [])
+
+  const [eventsService] = useState(() => createEventsServicePlugin())
+
+  // Map day columns to a date in the current week (Mon Feb 16 – Fri Feb 20, 2026)
+  const DAY_CONFIG = {
+    MONDAYS: { letter: 'M', date: '2026-02-16' },
+    TUESDAYS: { letter: 'T', date: '2026-02-17' },
+    WEDNESDAYS: { letter: 'W', date: '2026-02-18' },
+    THURSDAYS: { letter: 'R', date: '2026-02-19' },
+    FRIDAYS: { letter: 'F', date: '2026-02-20' },
+  } as const
+
+  // Parse "HHMM-HHMM" (e.g. "1305-1425") into start/end time strings for Temporal
+  const parseTimes = (timeStr: string) => {
+    if (!timeStr || !timeStr.includes('-')) return null
+    const [startRaw, endRaw] = timeStr.split('-')
+    if (!startRaw || !endRaw || startRaw.length !== 4 || endRaw.length !== 4) return null
+    const startTime = `${startRaw.substring(0, 2)}:${startRaw.substring(2, 4)}`
+    const endTime = `${endRaw.substring(0, 2)}:${endRaw.substring(2, 4)}`
+    return { start: startTime, end: endTime }
+  }
+
+  const calendar = useCalendarApp({
+    views: [
+      createViewWeek(),
+    ],
+    dayBoundaries: {
+      start: '07:00',
+      end: '21:00',
+    },
+    weekOptions: {
+      gridHeight: 1000,
+      nDays: 5,
+      eventWidth: 100,
+      eventOverlap: true,
+    },
+    events: [],
+    plugins: [eventsService],
+    selectedDate: Temporal.PlainDate.from('2026-02-20'),
+  })
+
+  useEffect(() => {
+    const events: any[] = []
+
+    selectedClasses.forEach(cls => {
+      const times = parseTimes(cls.TIMES)
+      if (!times) return
+
+      const dayKeys = ['MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS'] as const
+      dayKeys.forEach(dayKey => {
+        const config = DAY_CONFIG[dayKey]
+        // Data uses the day letter (M, T, W, R, F) when the class meets that day
+        if (cls[dayKey] && cls[dayKey].trim() !== '') {
+          const startStr = `${config.date}T${times.start}:00[UTC]`
+          const endStr = `${config.date}T${times.end}:00[UTC]`
+          events.push({
+            id: `${cls.CRN}-${cls.SEQ_NUMB}-${dayKey}`,
+            title: cls.SUBJ_CODE && cls.CRSE_NUMB
+              ? `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}${cls.CRSE_TITLE ? ' - ' + cls.CRSE_TITLE : ''}`
+              : cls.CRSE_TITLE || `CRN ${cls.CRN}`,
+            start: Temporal.ZonedDateTime.from(startStr),
+            end: Temporal.ZonedDateTime.from(endStr),
+          })
+        }
+      })
+    })
+
+    console.log(`Setting ${events.length} events from ${selectedClasses.length} selected classes`)
+    eventsService.set(events)
+  }, [selectedClasses, eventsService])
+
+  useEffect(() => {
+    async function getClasses() {
+      const { data: CLASSES, error } = await supabase
+        .from('CLASSES')
+        .select(`
+          SUBJ_CODE, CRSE_NUMB, NOTE_ROW, CRN, SEQ_NUMB, CREDIT_HRS, LINK_CONN, 
+          MONDAYS, TUESDAYS, WEDNESDAYS, THURSDAYS, FRIDAYS, CRSE_TITLE,
+          TIMES, LOCATIONS, MAX_ENRL, ENRL, SEATS, WLIST, 
+          PERC_FULL, XLIST_MAX, XLIST_CUR, INSTRUCTORS, 
+          TUITION_CODE, BILL_HRS
+        `)
+
+
+
+      if (error) {
+        console.error('Error fetching classes:', error)
+      } else if (CLASSES && CLASSES.length > 0) {
+        setClasses(CLASSES)
+      }
+      setLoading(false)
+    }
+
+    getClasses()
+  }, [])
+
+  return (
+    <div style={{ padding: '20px' }}>
+      <h1 style={{ marginBottom: '1rem' }}>DAL Planner Classes</h1>
+
+      {selectedClasses.length > 0 && (
+        <div style={{ marginBottom: '1rem', padding: '10px', backgroundColor: '#eef', border: '1px solid #ccd', borderRadius: '4px' }}>
+          <strong>Selected Classes ({selectedClasses.length}):</strong>
+          <ul style={{ margin: '5px 0 0 0', paddingLeft: '20px', fontSize: '0.9rem' }}>
+            {selectedClasses.map((sc, i) => (
+              <li key={i}>{sc.CRN} - Section {sc.SEQ_NUMB}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div>
+        <ScheduleXCalendar calendarApp={calendar} />
+      </div>
+
+      {loading ? (
+        <p>Loading...</p>
+      ) : classes.length === 0 ? (
+        <p>No classes found.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th rowSpan={2}>Select</th>
+                <th rowSpan={2}>Notes</th>
+                <th rowSpan={2}>CRN</th>
+                <th rowSpan={2}>Section</th>
+                <th rowSpan={2}>Cr<br />Hrs</th>
+                <th rowSpan={2}>Link</th>
+                <th colSpan={5}>Days</th>
+                <th rowSpan={2}>Course Title</th>
+                <th rowSpan={2}>Times</th>
+                <th rowSpan={2}>Location(s)</th>
+                <th colSpan={5}>Enrolment Info</th>
+                <th colSpan={2}>XList Info</th>
+                <th rowSpan={2}>Instructor(s)</th>
+                <th colSpan={2}>Tuition</th>
+              </tr>
+              <tr>
+                <th className="sub-th">Mo</th>
+                <th className="sub-th">Tu</th>
+                <th className="sub-th">We</th>
+                <th className="sub-th">Th</th>
+                <th className="sub-th">Fr</th>
+
+                <th className="sub-th">Max</th>
+                <th className="sub-th">Cur</th>
+                <th className="sub-th">Avail</th>
+                <th className="sub-th">WtLst</th>
+                <th className="sub-th">%Full</th>
+
+                <th className="sub-th">Max</th>
+                <th className="sub-th">Cur</th>
+
+                <th className="sub-th">Code</th>
+                <th className="sub-th">BHrs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {classes.slice(0, 20).map((cls, idx) => {
+                const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
+                return (
+                  <tr key={idx}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleClassSelection(cls)}
+                      />
+                    </td>
+                    <td>{cls.NOTE_ROW}</td>
+                    <td>{cls.CRN}</td>
+                    <td>{cls.SEQ_NUMB}</td>
+                    <td>{cls.CREDIT_HRS}</td>
+                    <td>{cls.LINK_CONN}</td>
+                    <td>{cls.MONDAYS}</td>
+                    <td>{cls.TUESDAYS}</td>
+                    <td>{cls.WEDNESDAYS}</td>
+                    <td>{cls.THURSDAYS}</td>
+                    <td>{cls.FRIDAYS}</td>
+                    <td>{cls.CRSE_TITLE}</td>
+                    <td>{cls.TIMES}</td>
+                    <td>{cls.LOCATIONS}</td>
+                    <td>{cls.MAX_ENRL}</td>
+                    <td>{cls.ENRL}</td>
+                    <td>{cls.SEATS}</td>
+                    <td>{cls.WLIST}</td>
+                    <td>{cls.PERC_FULL}</td>
+                    <td>{cls.XLIST_MAX}</td>
+                    <td>{cls.XLIST_CUR}</td>
+                    <td>{cls.INSTRUCTORS}</td>
+                    <td>{cls.TUITION_CODE}</td>
+                    <td>{cls.BILL_HRS}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default App

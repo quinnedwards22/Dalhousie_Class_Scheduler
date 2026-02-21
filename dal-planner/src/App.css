@@ -1,0 +1,28 @@
+/* Basic app styles here */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.data-table th,
+.data-table td {
+  border: 1px solid #ddd;
+  padding: 6px 8px;
+  text-align: center;
+}
+
+.data-table th {
+  background-color: #eee;
+  font-weight: 600;
+  vertical-align: bottom;
+}
+
+.data-table .sub-th {
+  font-size: 0.75rem;
+  background-color: #f5f5f5;
+}
+
+.data-table tr:hover {
+  background-color: #fafafa;
+}
