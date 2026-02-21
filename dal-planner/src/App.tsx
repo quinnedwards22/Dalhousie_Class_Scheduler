@@ -153,6 +153,14 @@ function App() {
   const [seatsAvailFilter, setSeatsAvailFilter] = useState(false)
   const [hideCDFilter, setHideCDFilter] = useState(false)
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [rowsPerPage, setRowsPerPage] = useState(20)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter])
+
   // ── Derived data ──────────────────────────────────────────
 
   const uniqueSubjects = useMemo(() => {
@@ -191,10 +199,15 @@ function App() {
     })
   }, [classes, searchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter])
 
+  const paginatedClasses = useMemo(() => {
+    const startIdx = (currentPage - 1) * rowsPerPage
+    return filteredClasses.slice(startIdx, startIdx + rowsPerPage)
+  }, [filteredClasses, currentPage, rowsPerPage])
+
   const groupedClasses = useMemo(() => {
     const groups: { key: string; code: string; title: string; termInfo: string; equiv: string; sections: any[] }[] = []
     const map = new Map<string, number>()
-    filteredClasses.forEach(cls => {
+    paginatedClasses.forEach(cls => {
       const key = `${cls.SUBJ_CODE || ''}-${cls.CRSE_NUMB || ''}`
       if (!map.has(key)) {
         map.set(key, groups.length)
@@ -214,7 +227,7 @@ function App() {
       groups[map.get(key)!].sections.push(cls)
     })
     return groups
-  }, [filteredClasses])
+  }, [paginatedClasses])
 
   // ── Conflict detection ────────────────────────────────────
 
@@ -643,6 +656,49 @@ function App() {
                 </div>
               )}
 
+              {/* Pagination Controls */}
+              {classes.length > 0 && (
+                <div className="pagination-controls" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+                  <div className="pagination-info" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                    Showing {Math.min((currentPage - 1) * rowsPerPage + 1, filteredClasses.length)} – {Math.min(currentPage * rowsPerPage, filteredClasses.length)} of {filteredClasses.length} results
+                  </div>
+                  <div className="pagination-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <div className="rows-per-page" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Rows per page:</span>
+                      <select
+                        value={rowsPerPage}
+                        onChange={e => {
+                          setRowsPerPage(Number(e.target.value))
+                          setCurrentPage(1)
+                        }}
+                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                      >
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                      </select>
+                    </div>
+                    <div className="page-buttons" style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        style={{ padding: '4px 12px', border: '1px solid var(--border)', borderRadius: '4px', background: currentPage === 1 ? 'var(--background)' : 'white', cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+                      >
+                        Prev
+                      </button>
+                      <button
+                        onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredClasses.length / rowsPerPage), p + 1))}
+                        disabled={currentPage >= Math.ceil(filteredClasses.length / rowsPerPage)}
+                        style={{ padding: '4px 12px', border: '1px solid var(--border)', borderRadius: '4px', background: currentPage >= Math.ceil(filteredClasses.length / rowsPerPage) ? 'var(--background)' : 'white', cursor: currentPage >= Math.ceil(filteredClasses.length / rowsPerPage) ? 'not-allowed' : 'pointer' }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Table */}
               {loading ? (
                 <p className="loading-text">Loading classes…</p>
@@ -801,6 +857,49 @@ function App() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* Pagination Controls (Bottom) */}
+              {classes.length > 0 && (
+                <div className="pagination-controls" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+                  <div className="pagination-info" style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                    Showing {Math.min((currentPage - 1) * rowsPerPage + 1, filteredClasses.length)} – {Math.min(currentPage * rowsPerPage, filteredClasses.length)} of {filteredClasses.length} results
+                  </div>
+                  <div className="pagination-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <div className="rows-per-page" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Rows per page:</span>
+                      <select
+                        value={rowsPerPage}
+                        onChange={e => {
+                          setRowsPerPage(Number(e.target.value))
+                          setCurrentPage(1)
+                        }}
+                        style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border)', fontSize: '0.875rem' }}
+                      >
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                      </select>
+                    </div>
+                    <div className="page-buttons" style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        style={{ padding: '4px 12px', border: '1px solid var(--border)', borderRadius: '4px', background: currentPage === 1 ? 'var(--background)' : 'white', cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+                      >
+                        Prev
+                      </button>
+                      <button
+                        onClick={() => setCurrentPage(p => Math.min(Math.ceil(filteredClasses.length / rowsPerPage), p + 1))}
+                        disabled={currentPage >= Math.ceil(filteredClasses.length / rowsPerPage)}
+                        style={{ padding: '4px 12px', border: '1px solid var(--border)', borderRadius: '4px', background: currentPage >= Math.ceil(filteredClasses.length / rowsPerPage) ? 'var(--background)' : 'white', cursor: currentPage >= Math.ceil(filteredClasses.length / rowsPerPage) ? 'not-allowed' : 'pointer' }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 
