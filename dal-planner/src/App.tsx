@@ -143,22 +143,38 @@ function App() {
     getClasses()
   }, [])
 
+  const seatsClass = (seats: number | null | undefined) => {
+    if (seats == null || seats === '') return ''
+    const n = Number(seats)
+    if (n > 0) return 'seats-positive'
+    if (n <= 0) return 'seats-zero'
+    return ''
+  }
+
   return (
-    <div style={{ padding: '20px' }}>
-      <h1 style={{ marginBottom: '1rem' }}>DAL Planner Classes</h1>
+    <div className="app-container">
+      <header className="app-header">
+        <h1>DAL Planner</h1>
+        <span className="dal-badge">2025–26</span>
+      </header>
 
       {selectedClasses.length > 0 && (
-        <div style={{ marginBottom: '1rem', padding: '10px', backgroundColor: '#eef', border: '1px solid #ccd', borderRadius: '4px' }}>
-          <strong>Selected Classes ({selectedClasses.length}):</strong>
-          <ul style={{ margin: '5px 0 0 0', paddingLeft: '20px', fontSize: '0.9rem' }}>
+        <div className="selected-bar">
+          <strong>Selected ({selectedClasses.length}):</strong>
+          <div className="selected-chips">
             {selectedClasses.map((sc, i) => (
-              <li key={i}>{sc.CRN} - Section {sc.SEQ_NUMB}</li>
+              <span key={i} className="selected-chip">
+                {sc.SUBJ_CODE && sc.CRSE_NUMB
+                  ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
+                  : `CRN ${sc.CRN}`
+                } · {sc.SEQ_NUMB}
+              </span>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
-      <div>
+      <div className="calendar-wrapper">
         <ScheduleXCalendar calendarApp={calendar} />
       </div>
 
@@ -194,11 +210,11 @@ function App() {
       </div>
 
       {loading ? (
-        <p>Loading...</p>
+        <p className="loading-text">Loading classes…</p>
       ) : classes.length === 0 ? (
-        <p>No classes found.</p>
+        <p className="loading-text">No classes found.</p>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-wrapper">
           <table className="data-table">
             <thead>
               <tr>
@@ -241,7 +257,7 @@ function App() {
               {filteredClasses.map((cls, idx) => {
                 const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
                 return (
-                  <tr key={idx}>
+                  <tr key={idx} className={isSelected ? 'row-selected' : ''}>
                     <td>
                       <input
                         type="checkbox"
@@ -259,12 +275,12 @@ function App() {
                     <td>{cls.WEDNESDAYS}</td>
                     <td>{cls.THURSDAYS}</td>
                     <td>{cls.FRIDAYS}</td>
-                    <td>{highlightMatch(cls.CRSE_TITLE ?? '')}</td>
+                    <td className="cell-title">{highlightMatch(cls.CRSE_TITLE ?? '')}</td>
                     <td>{cls.TIMES}</td>
-                    <td>{cls.LOCATIONS}</td>
+                    <td className="cell-location">{cls.LOCATIONS}</td>
                     <td>{cls.MAX_ENRL}</td>
                     <td>{cls.ENRL}</td>
-                    <td>{cls.SEATS}</td>
+                    <td className={seatsClass(cls.SEATS)}>{cls.SEATS}</td>
                     <td>{cls.WLIST}</td>
                     <td>{cls.PERC_FULL}</td>
                     <td>{cls.XLIST_MAX}</td>
