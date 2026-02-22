@@ -36,6 +36,27 @@ const rowTypeClass = (schdType: string) => {
   return ''
 }
 
+/**
+ * Parses a LINK_CONN string like "B0, T0" into structured tokens.
+ * Each token represents one required companion type + group number.
+ */
+const parseLinkTokens = (linkStr: string | null | undefined): { prefix: string; num: string }[] => {
+  if (!linkStr) return []
+  return linkStr.split(',').map(s => s.trim()).filter(Boolean).map(s => ({
+    prefix: s.charAt(0),   // e.g. 'B' — the SCHD_CODE of the required companion
+    num: s.substring(1),   // e.g. '0' — the group number that must match
+  }))
+}
+
+/**
+ * Returns the group number for a section (all tokens in a LINK_CONN share the same number).
+ * e.g. "L0, T0" → "0"
+ */
+const getLinkGroupNum = (linkStr: string | null | undefined): string | null => {
+  const tokens = parseLinkTokens(linkStr)
+  return tokens.length > 0 ? tokens[0].num : null
+}
+
 const COLOR_PALETTE = [
   { main: '#1565c0', container: '#dbeafe', onContainer: '#0d47a1' },
   { main: '#2e7d32', container: '#dcfce7', onContainer: '#166534' },
@@ -276,32 +297,98 @@ function App() {
 
   // ── Incompatible Link Connection ──────────────────────────
 
+  // ── Incompatible Link Detection ───────────────────────────
+  //
+  // A section is incompatible if a currently-selected section has a link
+  // requirement for that section's type (SCHD_CODE), but with a different
+  // group number. e.g. if you selected a Lec with LINK_CONN='B0', then
+  // labs with group number '1' are incompatible.
+  //
   const incompatibleLinks = useMemo(() => {
     const invalid = new Set<string>()
-    const courseLinkPrefixes = new Map<string, Set<string>>()
+
+    // Build a map of what companion group numbers are required, per course per SCHD_CODE type
+    // e.g. { 'CSCI-4176': { 'B': Set{'0'} } }
+    const requirements = new Map<string, Map<string, Set<string>>>()
 
     selectedClasses.forEach(cls => {
-      if (!cls.LINK_CONN || cls.LINK_CONN.length < 2) return
+      const tokens = parseLinkTokens(cls.LINK_CONN)
+      if (tokens.length === 0) return
       const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`
-      const prefix = cls.LINK_CONN.charAt(0)
-      if (!courseLinkPrefixes.has(courseKey)) courseLinkPrefixes.set(courseKey, new Set())
-      courseLinkPrefixes.get(courseKey)!.add(prefix)
+      tokens.forEach(({ prefix, num }) => {
+        if (!requirements.has(courseKey)) requirements.set(courseKey, new Map())
+        const byType = requirements.get(courseKey)!
+        if (!byType.has(prefix)) byType.set(prefix, new Set())
+        byType.get(prefix)!.add(num)
+      })
     })
 
-    filteredClasses.forEach(cls => {
-      if (!cls.LINK_CONN || cls.LINK_CONN.length < 2) return
+    // Mark sections that don't match the required group number for their type
+    classes.forEach(cls => {
+      if (!cls.LINK_CONN || !cls.SCHD_CODE) return
+      // Don't mark already-selected sections as incompatible
+      if (selectedClasses.some(s => s.CRN === cls.CRN && s.SEQ_NUMB === cls.SEQ_NUMB)) return
+
       const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`
-      const selectedPrefixes = courseLinkPrefixes.get(courseKey)
-      if (selectedPrefixes && selectedPrefixes.size > 0) {
-        const myPrefix = cls.LINK_CONN.charAt(0)
-        if (!selectedPrefixes.has(myPrefix)) {
-          invalid.add(`${cls.CRN}-${cls.SEQ_NUMB}`)
-        }
+      const courseReqs = requirements.get(courseKey)
+      if (!courseReqs) return
+
+      const requiredNums = courseReqs.get(cls.SCHD_CODE)
+      if (!requiredNums || requiredNums.size === 0) return
+
+      const myGroupNum = getLinkGroupNum(cls.LINK_CONN)
+      if (myGroupNum !== null && !requiredNums.has(myGroupNum)) {
+        invalid.add(`${cls.CRN}-${cls.SEQ_NUMB}`)
       }
     })
 
     return invalid
-  }, [selectedClasses, filteredClasses])
+  }, [selectedClasses, classes])
+
+  // ── Missing Link Detection ────────────────────────────────
+  //
+  // A selected section has a missing link if it requires a companion
+  // (per its LINK_CONN tokens) that isn't in the selected set.
+  //
+  // Rule: token {prefix, num} is satisfied if another selected section
+  // in the same course has SCHD_CODE === prefix AND the same group number.
+  //
+  const missingLinks = useMemo(() => {
+    const missing = new Map<string, string[]>() // classId → list of unsatisfied token strings
+
+    // Index selected classes by course for fast lookup
+    const selectedByCourse = new Map<string, any[]>()
+    selectedClasses.forEach(cls => {
+      const key = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`
+      if (!selectedByCourse.has(key)) selectedByCourse.set(key, [])
+      selectedByCourse.get(key)!.push(cls)
+    })
+
+    selectedClasses.forEach(cls => {
+      const tokens = parseLinkTokens(cls.LINK_CONN)
+      if (tokens.length === 0) return
+
+      const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`
+      const companions = (selectedByCourse.get(courseKey) || []).filter(
+        other => !(other.CRN === cls.CRN && other.SEQ_NUMB === cls.SEQ_NUMB)
+      )
+
+      const unsatisfied: string[] = []
+      tokens.forEach(({ prefix, num }) => {
+        const satisfied = companions.some(other => {
+          if (other.SCHD_CODE !== prefix) return false
+          return getLinkGroupNum(other.LINK_CONN) === num
+        })
+        if (!satisfied) unsatisfied.push(`${prefix}${num}`)
+      })
+
+      if (unsatisfied.length > 0) {
+        missing.set(`${cls.CRN}-${cls.SEQ_NUMB}`, unsatisfied)
+      }
+    })
+
+    return missing
+  }, [selectedClasses])
 
   const totalCredits = useMemo(() => {
     return selectedClasses.reduce((sum, cls) => sum + (Number(cls.CREDIT_HRS) || 0), 0)
@@ -480,7 +567,7 @@ function App() {
       const { data: CLASSES, error } = await supabase
         .from('dalhousie_classes')
         .select(`
-          subj_code, crse_numb, note_row, crn, seq_numb, schd_type,
+          subj_code, crse_numb, note_row, crn, seq_numb, schd_type, schd_code,
           credit_hrs, link_conn, 
           mondays, tuesdays, wednesdays, thursdays, fridays, saturdays, sundays, crse_title,
           times, locations, max_enrl, enrl, seats, wlist,
@@ -565,8 +652,13 @@ function App() {
         </nav>
 
         <div className="header-spacer" />
+        {missingLinks.size > 0 && (
+          <span className="header-conflict" style={{ backgroundColor: '#fef08a', color: '#854d0e' }}>
+            {missingLinks.size} missing link{missingLinks.size > 1 ? 's' : ''}
+          </span>
+        )}
         {conflicts.size > 0 && (
-          <span className="header-conflict">⚠️ {conflicts.size} conflict{conflicts.size > 1 ? 's' : ''}</span>
+          <span className="header-conflict">{conflicts.size} conflict{conflicts.size > 1 ? 's' : ''}</span>
         )}
         {selectedClasses.length > 0 && (
           <span className="header-credits">{totalCredits} cr hrs</span>
@@ -837,11 +929,18 @@ function App() {
                                     {splitByBr(cls.INSTRUCTORS).map((inst, i) => <div key={i} className="sub-row">{inst}</div>)}
                                   </td>
                                 </tr>
+                                {missingLinks.has(`${cls.CRN}-${cls.SEQ_NUMB}`) && (
+                                  <tr className="row-conflict-detail" style={{ backgroundColor: '#fef08a' }}>
+                                    <td className="cell-note"></td>
+                                    <td colSpan={15} className="conflict-detail-text" style={{ color: '#854d0e' }}>
+                                      Requires a linked section: {missingLinks.get(`${cls.CRN}-${cls.SEQ_NUMB}`)?.join(', ')}
+                                    </td>
+                                  </tr>
+                                )}
                                 {hasConflict && (
                                   <tr className="row-conflict-detail">
                                     <td className="cell-note"></td>
-                                    <td colSpan={15} className="conflict-detail-text">⚠️ Conflicts with {conflictList?.join(', ')}</td>
-                                    <td></td>
+                                    <td colSpan={15} className="conflict-detail-text">Conflicts with {conflictList?.join(', ')}</td>
                                   </tr>
                                 )}
                                 {noteBottom && (
@@ -910,10 +1009,18 @@ function App() {
                     <span className="mini-preview-count">{selectedClasses.length} class{selectedClasses.length > 1 ? 'es' : ''}</span>
                     <span className="mini-preview-dot">·</span>
                     <span className="mini-preview-credits">{totalCredits} credit hr{totalCredits !== 1 ? 's' : ''}</span>
+                    {missingLinks.size > 0 && (
+                      <>
+                        <span className="mini-preview-dot">·</span>
+                        <span className="mini-preview-conflict" style={{ backgroundColor: '#fef08a', color: '#854d0e' }}>
+                          {missingLinks.size} missing link{missingLinks.size > 1 ? 's' : ''}
+                        </span>
+                      </>
+                    )}
                     {conflicts.size > 0 && (
                       <>
                         <span className="mini-preview-dot">·</span>
-                        <span className="mini-preview-conflict">⚠️ {conflicts.size} conflict{conflicts.size > 1 ? 's' : ''}</span>
+                        <span className="mini-preview-conflict">{conflicts.size} conflict{conflicts.size > 1 ? 's' : ''}</span>
                       </>
                     )}
                   </div>
@@ -949,7 +1056,7 @@ function App() {
                 <>
                   {conflicts.size > 0 && (
                     <div className="conflict-banner">
-                      ⚠️ Schedule conflict — {conflicts.size} class{conflicts.size > 1 ? 'es' : ''} have overlapping times
+                      Schedule conflict — {conflicts.size} class{conflicts.size > 1 ? 'es' : ''} have overlapping times
                     </div>
                   )}
 
