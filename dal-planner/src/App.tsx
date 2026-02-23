@@ -174,10 +174,41 @@ function App() {
   const [seatsAvailFilter, setSeatsAvailFilter] = useState(false)
   const [hideCDFilter, setHideCDFilter] = useState(false)
 
+  // Term & Location state
+  const [termFilter, setTermFilter] = useState<Set<string>>(new Set(['202610']))
+  const [locationFilter, setLocationFilter] = useState<Set<string>>(new Set(['Halifax', 'Truro', 'Online', 'Others']))
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(20)
 
+  // Location helpers
+  const isLocAll = locationFilter.size === 4
+  const toggleLocAll = () => {
+    if (isLocAll) {
+      setLocationFilter(new Set())
+    } else {
+      setLocationFilter(new Set(['Halifax', 'Truro', 'Online', 'Others']))
+    }
+    setCurrentPage(1)
+  }
+  const toggleLoc = (loc: string) => {
+    setLocationFilter(prev => {
+      const next = new Set(prev)
+      next.has(loc) ? next.delete(loc) : next.add(loc)
+      return next
+    })
+    setCurrentPage(1)
+  }
+
+  const toggleTerm = (term: string) => {
+    setTermFilter(prev => {
+      const next = new Set(prev)
+      next.has(term) ? next.delete(term) : next.add(term)
+      return next
+    })
+    // Also clear classes while fetching new ones? Handled by useEffect
+  }
 
   // ── Derived data ──────────────────────────────────────────
 
@@ -213,9 +244,24 @@ function App() {
       if (hideCDFilter && (cls.TIMES || '').trim().toUpperCase() === 'C/D') {
         return false
       }
+
+      // Location filter
+      if (!isLocAll) {
+        const loc = (cls.LOCATIONS || '').trim().toLowerCase()
+        const isHalifax = /studley|carleton|sexton|king's/i.test(loc)
+        const isTruro = /agricultural/i.test(loc)
+        const isOnline = /online/i.test(loc)
+        let matched = false
+        if (locationFilter.has('Halifax') && isHalifax) matched = true
+        if (locationFilter.has('Truro') && isTruro) matched = true
+        if (locationFilter.has('Online') && isOnline) matched = true
+        if (locationFilter.has('Others') && !isHalifax && !isTruro && !isOnline) matched = true
+        if (!matched) return false
+      }
+
       return true
     })
-  }, [classes, searchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter])
+  }, [classes, searchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter, locationFilter, isLocAll])
 
   const paginatedClasses = useMemo(() => {
     const startIdx = (currentPage - 1) * rowsPerPage
@@ -563,6 +609,14 @@ function App() {
 
   useEffect(() => {
     async function getClasses() {
+      if (termFilter.size === 0) {
+        setClasses([])
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+
       const { data: CLASSES, error } = await supabase
         .from('dalhousie_classes')
         .select(`
@@ -574,10 +628,11 @@ function App() {
           tuition_code, bill_hrs, note_bottom, crse_equiv,
           term_code, ptrm_code, start_date, end_date
         `)
+        .in('term_code', Array.from(termFilter))
 
       if (error) {
         console.error('Error fetching classes:', error)
-      } else if (CLASSES && CLASSES.length > 0) {
+      } else if (CLASSES) {
         const upperClasses = CLASSES.map((c: any) => {
           const upperC: any = {}
           for (const key in c) {
@@ -596,8 +651,7 @@ function App() {
       setLoading(false)
     }
     getClasses()
-  }, [])
-
+  }, [termFilter, setSelectedClasses])
 
 
   // ── Render ────────────────────────────────────────────────
@@ -678,6 +732,29 @@ function App() {
           {activeTab === 'browse' && (
             <div className="tab-content browse-tab">
               {/* Toolbar */}
+              <div className="toolbar-top-filters">
+                <div className="filter-group">
+                  <h3 className="filter-group-title">Terms:</h3>
+                  <div className="filter-checkboxes">
+                    <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202600')} onChange={() => toggleTerm('202600')} /> (202600) 2025/2026 Medicine/Dentistry</label>
+                    <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202610')} onChange={() => toggleTerm('202610')} /> (202610) 2025/2026 Fall</label>
+                    <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202620')} onChange={() => toggleTerm('202620')} /> (202620) 2025/2026 Winter</label>
+                    <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202630')} onChange={() => toggleTerm('202630')} /> (202630) 2025/2026 Summer</label>
+                  </div>
+                </div>
+
+                <div className="filter-group loc-group">
+                  <h3 className="filter-group-title">Locations:</h3>
+                  <div className="filter-checkboxes">
+                    <label className="filter-checkbox"><input type="checkbox" checked={isLocAll} onChange={toggleLocAll} /> All</label>
+                    <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Halifax')} onChange={() => toggleLoc('Halifax')} /> Halifax</label>
+                    <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Truro')} onChange={() => toggleLoc('Truro')} /> Truro</label>
+                    <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Online')} onChange={() => toggleLoc('Online')} /> Online</label>
+                    <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Others')} onChange={() => toggleLoc('Others')} /> Others</label>
+                  </div>
+                </div>
+              </div>
+
               <div className="toolbar">
                 <div className="toolbar-search-row">
                   <div className="search-input-wrapper">

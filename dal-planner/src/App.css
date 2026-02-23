@@ -371,6 +371,58 @@
 }
 
 /* ── Toolbar ──────────────────────────────────────── */
+.toolbar-top-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: #fff;
+  border: 1px solid #DCE3EA;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.filter-group-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  color: #1F2937;
+}
+
+.filter-checkboxes {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.filter-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #1F2937;
+  cursor: pointer;
+}
+
+.filter-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #0056b3;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+
 .toolbar {
   background: #fff;
   border: 1px solid #DCE3EA;
