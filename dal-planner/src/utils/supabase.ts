@@ -4,5 +4,3 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://placeholder.su
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY || 'placeholder-key';
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
-
-export default supabase;

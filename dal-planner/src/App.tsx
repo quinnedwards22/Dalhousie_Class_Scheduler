@@ -178,9 +178,6 @@ function App() {
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(20)
 
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [searchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter])
 
   // ── Derived data ──────────────────────────────────────────
 
@@ -407,7 +404,7 @@ function App() {
     return (
       <>
         {parts.map((part, i) =>
-          regex.test(part) ? <mark key={i} className="search-highlight">{part}</mark> : part
+          regex.test(part) ? <mark key={`${i}-${part}`} className="search-highlight">{part}</mark> : part
         )}
       </>
     )
@@ -429,6 +426,7 @@ function App() {
       next.has(day) ? next.delete(day) : next.add(day)
       return next
     })
+    setCurrentPage(1)
   }, [])
 
   const clearFilters = useCallback(() => {
@@ -437,6 +435,7 @@ function App() {
     setDayFilter(new Set())
     setSeatsAvailFilter(false)
     setHideCDFilter(false)
+    setCurrentPage(1)
   }, [])
 
   const hasActiveFilters = subjectFilter || typeFilter || dayFilter.size > 0 || seatsAvailFilter || hideCDFilter
@@ -692,10 +691,10 @@ function App() {
                       className="search-input"
                       placeholder="Search by course name, code, or CRN..."
                       value={searchQuery}
-                      onChange={e => setSearchQuery(e.target.value)}
+                      onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1) }}
                     />
                     {searchQuery && (
-                      <button className="search-clear" onClick={() => setSearchQuery('')} aria-label="Clear search">✕</button>
+                      <button className="search-clear" onClick={() => { setSearchQuery(''); setCurrentPage(1) }} aria-label="Clear search">✕</button>
                     )}
                   </div>
                   {searchQuery && (
@@ -705,11 +704,11 @@ function App() {
                   )}
                 </div>
                 <div className="toolbar-filter-row">
-                  <select value={subjectFilter} onChange={e => setSubjectFilter(e.target.value)} className="filter-select">
+                  <select value={subjectFilter} onChange={e => { setSubjectFilter(e.target.value); setCurrentPage(1) }} className="filter-select">
                     <option value="">All Subjects</option>
                     {uniqueSubjects.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
-                  <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="filter-select">
+                  <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setCurrentPage(1) }} className="filter-select">
                     <option value="">All Types</option>
                     <option value="lec">Lecture</option>
                     <option value="lab">Lab</option>
@@ -726,11 +725,11 @@ function App() {
                   </div>
                   <button
                     className={`filter-toggle ${seatsAvailFilter ? 'active' : ''}`}
-                    onClick={() => setSeatsAvailFilter(v => !v)}
+                    onClick={() => { setSeatsAvailFilter(v => !v); setCurrentPage(1) }}
                   >Available Only</button>
                   <button
                     className={`filter-toggle ${hideCDFilter ? 'active' : ''}`}
-                    onClick={() => setHideCDFilter(v => !v)}
+                    onClick={() => { setHideCDFilter(v => !v); setCurrentPage(1) }}
                   >Hide C/D</button>
                   {hasActiveFilters && (
                     <button className="filter-clear" onClick={clearFilters}>Clear Filters</button>
@@ -742,7 +741,7 @@ function App() {
                 <div className="active-filters-bar">
                   <span className="active-filters-label">Filtering:</span>
                   {activeFilterLabels.map((label, i) => (
-                    <span key={i} className="active-filter-tag">{label}</span>
+                    <span key={label} className="active-filter-tag">{label}</span>
                   ))}
                   {searchQuery && <span className="active-filter-tag">"{searchQuery}"</span>}
                 </div>
@@ -834,7 +833,7 @@ function App() {
                               </div>
                             </td>
                           </tr>
-                          {group.sections.map((cls, idx) => {
+                          {group.sections.map(cls => {
                             const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
                             const noteVal = (cls.NOTE_ROW || '').trim()
                             const noteBottom = (cls.NOTE_BOTTOM || '').trim()
@@ -842,7 +841,7 @@ function App() {
                             const hasConflict = !!conflictList
                             const isInvalidLink = incompatibleLinks.has(`${cls.CRN}-${cls.SEQ_NUMB}`)
                             return (
-                              <React.Fragment key={`${group.key}-${idx}`}>
+                              <React.Fragment key={`${cls.CRN}-${cls.SEQ_NUMB}`}>
                                 <tr
                                   className={[
                                     isSelected ? 'row-selected' : '',
@@ -872,34 +871,34 @@ function App() {
                                   <td className="cell-narrow">{cls.LINK_CONN}</td>
                                   <td>
                                     {splitByBr(cls.MONDAYS).map((val, i) => (
-                                      <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                      <div key={`mon-${i}`} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
                                     ))}
                                   </td>
                                   <td>
                                     {splitByBr(cls.TUESDAYS).map((val, i) => (
-                                      <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                      <div key={`tue-${i}`} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
                                     ))}
                                   </td>
                                   <td>
                                     {splitByBr(cls.WEDNESDAYS).map((val, i) => (
-                                      <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                      <div key={`wed-${i}`} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
                                     ))}
                                   </td>
                                   <td>
                                     {splitByBr(cls.THURSDAYS).map((val, i) => (
-                                      <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                      <div key={`thu-${i}`} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
                                     ))}
                                   </td>
                                   <td>
                                     {splitByBr(cls.FRIDAYS).map((val, i) => (
-                                      <div key={i} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
+                                      <div key={`fri-${i}`} className={`sub-row ${val?.trim() ? 'day-active' : 'day-empty'}`}>{val}</div>
                                     ))}
                                   </td>
                                   <td className="cell-times">
-                                    {splitByBr(cls.TIMES).map((t, i) => <div key={i} className="sub-row">{t}</div>)}
+                                    {splitByBr(cls.TIMES).map((t, i) => <div key={`time-${i}`} className="sub-row">{t}</div>)}
                                   </td>
                                   <td className="cell-location">
-                                    {splitByBr(cls.LOCATIONS).map((l, i) => <div key={i} className="sub-row">{l}</div>)}
+                                    {splitByBr(cls.LOCATIONS).map((l, i) => <div key={`loc-${i}`} className="sub-row">{l}</div>)}
                                   </td>
                                   <td className="cell-avail">
                                     {(() => {
@@ -926,7 +925,7 @@ function App() {
                                     })()}
                                   </td>
                                   <td className="cell-instructor">
-                                    {splitByBr(cls.INSTRUCTORS).map((inst, i) => <div key={i} className="sub-row">{inst}</div>)}
+                                    {splitByBr(cls.INSTRUCTORS).map((inst, i) => <div key={`inst-${i}`} className="sub-row">{inst}</div>)}
                                   </td>
                                 </tr>
                                 {missingLinks.has(`${cls.CRN}-${cls.SEQ_NUMB}`) && (
@@ -1025,8 +1024,8 @@ function App() {
                     )}
                   </div>
                   <div className="mini-preview-chips">
-                    {selectedClasses.map((sc, i) => (
-                      <span key={i} className="mini-chip">
+                    {selectedClasses.map(sc => (
+                      <span key={`${sc.CRN}-${sc.SEQ_NUMB}`} className="mini-chip">
                         {sc.SUBJ_CODE && sc.CRSE_NUMB
                           ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
                           : `CRN ${sc.CRN}`}
@@ -1067,8 +1066,8 @@ function App() {
                       <span className="stat-item">{totalCredits} credit hour{totalCredits !== 1 ? 's' : ''}</span>
                     </div>
                     <div className="schedule-chips">
-                      {selectedClasses.map((sc, i) => (
-                        <span key={i} className="selected-chip">
+                      {selectedClasses.map(sc => (
+                        <span key={`${sc.CRN}-${sc.SEQ_NUMB}`} className="selected-chip">
                           {sc.SUBJ_CODE && sc.CRSE_NUMB
                             ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
                             : `CRN ${sc.CRN}`
@@ -1087,8 +1086,8 @@ function App() {
                     <div className="async-section">
                       <h3 className="async-title">Asynchronous & TBA Courses</h3>
                       <div className="async-grid">
-                        {asyncClasses.map((cls, i) => (
-                          <div key={i} className={`async-card ${courseColorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`) || 'course-0'}`}>
+                        {asyncClasses.map(cls => (
+                          <div key={`${cls.CRN}-${cls.SEQ_NUMB}`} className={`async-card ${courseColorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`) || 'course-0'}`}>
                             <div className="async-card-header">
                               <span className="async-code">
                                 {cls.SUBJ_CODE} {cls.CRSE_NUMB}
