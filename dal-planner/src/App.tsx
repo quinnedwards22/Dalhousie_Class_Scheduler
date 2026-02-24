@@ -19,6 +19,10 @@ const defaultState: AppState = {
   workspaces: [{ id: '1', name: 'Plan A', classes: [] }]
 }
 
+// Module-level cache: term_code → normalised class array.
+// Lives for the browser session so toggling terms back doesn't re-fetch.
+const termCache = new Map<string, any[]>()
+
 // ── App ────────────────────────────────────────────────────────
 //
 // App is the root component and single source of truth for:
@@ -167,40 +171,66 @@ function App() {
 
       setLoading(true)
 
-      const { data: CLASSES, error } = await supabase
-        .from('dalhousie_classes')
-        .select(`
-          subj_code, crse_numb, note_row, crn, seq_numb, schd_type, schd_code,
-          credit_hrs, link_conn,
-          mondays, tuesdays, wednesdays, thursdays, fridays, saturdays, sundays, crse_title,
-          times, locations, max_enrl, enrl, seats, wlist,
-          perc_full, xlist_max, xlist_cur, instructors,
-          tuition_code, bill_hrs, note_bottom, crse_equiv,
-          term_code, ptrm_code, start_date, end_date
-        `)
-        .in('term_code', Array.from(termFilter))
+      const terms = Array.from(termFilter)
+      const uncached = terms.filter(t => !termCache.has(t))
 
-      if (error) {
-        console.error('Error fetching classes:', error)
-      } else if (CLASSES) {
-        // Normalise to UPPER_CASE keys
-        const upperClasses = CLASSES.map((c: any) => {
-          const upperC: any = {}
-          for (const key in c) {
-            upperC[key.toUpperCase()] = c[key]
-          }
-          return upperC
-        })
-        setClasses(upperClasses)
+      if (uncached.length > 0) {
+        // PostgREST enforces a server-side max_rows=1000 cap that .range() alone
+        // cannot override. Paginate each term in parallel, 1000 rows per page,
+        // until a short page signals the last chunk.
+        const PAGE_SIZE = 1000
 
-        // Prune selected classes that aren't in the new roster
-        setSelectedClasses(prev => {
-          if (prev.length === 0) return prev
-          const crnSet = new Set(upperClasses.map((c: any) => `${c.CRN}-${c.SEQ_NUMB}`))
-          const valid = prev.filter((c: any) => crnSet.has(`${c.CRN}-${c.SEQ_NUMB}`))
-          return valid.length === prev.length ? prev : valid
-        })
+        await Promise.all(
+          uncached.map(async term => {
+            const rows: any[] = []
+            let from = 0
+            while (true) {
+              const { data, error } = await supabase
+                .from('dalhousie_classes')
+                .select(`
+                  subj_code, crse_numb, note_row, crn, seq_numb, schd_type, schd_code,
+                  credit_hrs, link_conn,
+                  mondays, tuesdays, wednesdays, thursdays, fridays, saturdays, sundays, crse_title,
+                  times, locations, max_enrl, enrl, seats, wlist,
+                  perc_full, xlist_max, xlist_cur, instructors,
+                  tuition_code, bill_hrs, note_bottom, crse_equiv,
+                  term_code, ptrm_code, start_date, end_date
+                `)
+                .eq('term_code', term)
+                .range(from, from + PAGE_SIZE - 1)
+
+              if (error || !data) {
+                console.error('Error fetching classes for term', term, error)
+                break
+              }
+              rows.push(...data)
+              if (data.length < PAGE_SIZE) break
+              from += PAGE_SIZE
+            }
+
+            if (rows.length > 0) {
+              const upper = rows.map((c: any) => {
+                const u: any = {}
+                for (const key in c) u[key.toUpperCase()] = c[key]
+                return u
+              })
+              termCache.set(term, upper)
+            }
+          })
+        )
       }
+
+      const allClasses = terms.flatMap(t => termCache.get(t) ?? [])
+      setClasses(allClasses)
+
+      // Prune selected classes that aren't in the new roster
+      setSelectedClasses(prev => {
+        if (prev.length === 0) return prev
+        const crnSet = new Set(allClasses.map((c: any) => `${c.CRN}-${c.SEQ_NUMB}`))
+        const valid = prev.filter((c: any) => crnSet.has(`${c.CRN}-${c.SEQ_NUMB}`))
+        return valid.length === prev.length ? prev : valid
+      })
+
       setLoading(false)
     }
     getClasses()

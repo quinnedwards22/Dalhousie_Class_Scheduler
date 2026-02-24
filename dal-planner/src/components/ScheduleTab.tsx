@@ -52,12 +52,11 @@ function ScheduleTab({
     let latest = 1020    // 17:00 default upper bound
     let weekend = false
 
-    // Assign one color per unique course (SUBJ + NUMB); sections of the same
-    // course share a color. Colors cycle through COLOR_PALETTE.
+    // Assign one color per unique course+component (SUBJ + NUMB + TYPE); 
     const colorMap = new Map<string, string>()
     let colorIdx = 0
     selectedClasses.forEach(cls => {
-      const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`
+      const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`
       if (!colorMap.has(courseKey)) {
         colorMap.set(courseKey, `course-${colorIdx % COLOR_PALETTE.length}`)
         colorIdx++
@@ -83,11 +82,13 @@ function ScheduleTab({
       const saturdaysArr = splitByBr(cls.SATURDAYS)
       const sundaysArr = splitByBr(cls.SUNDAYS)
 
+      const locsArr = splitByBr(cls.LOCATIONS)
+
       // Waitlisted sections use the grey "waitlist" calendar instead of
       // the course color so they're visually distinct.
       const wlistCnt = Number(cls.WLIST) || 0
       const isWaitlisted = Number(cls.SEATS) <= 0 && wlistCnt > 0
-      const calendarId = isWaitlisted ? 'waitlist' : (colorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`) || 'course-0')
+      const calendarId = isWaitlisted ? 'waitlist' : (colorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`) || 'course-0')
 
       // Iterate over each time slot (a section can have multiple meeting times)
       timesArr.forEach((timeStr: string, idx: number) => {
@@ -109,17 +110,25 @@ function ScheduleTab({
           if (dayVal && dayVal.trim() !== '') {
             if (dayKey === 'SATURDAYS' || dayKey === 'SUNDAYS') weekend = true
             // Anchor events to the fixed reference week in DAY_CONFIG
-            const startStr = `${config.date}T${times.start}:00[UTC]`
-            const endStr = `${config.date}T${times.end}:00[UTC]`
+            // Schedule-X v4 requires Temporal.ZonedDateTime for timed events
+            const startDt = Temporal.ZonedDateTime.from(`${config.date}T${times.start}:00[UTC]`)
+            const endDt = Temporal.ZonedDateTime.from(`${config.date}T${times.end}:00[UTC]`)
+
+            // Clean up the location string by removing HTML tags like <b>
+            const rawLoc = locsArr[idx] || locsArr[0] || ''
+            const cleanLoc = rawLoc.replace(/<[^>]*>/g, '').trim()
+
             evs.push({
               id: `${cls.CRN}-${cls.SEQ_NUMB}-${dayKey}-${idx}`,
               title: cls.SUBJ_CODE && cls.CRSE_NUMB
-                ? `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}${cls.CRSE_TITLE ? ' - ' + cls.CRSE_TITLE : ''}`
+                ? `${cls.SUBJ_CODE} ${cls.CRSE_NUMB} (${cls.SCHD_TYPE || 'Lec'})`
                 : cls.CRSE_TITLE || `CRN ${cls.CRN}`,
-              start: Temporal.ZonedDateTime.from(startStr),
-              end: Temporal.ZonedDateTime.from(endStr),
+              start: startDt,
+              end: endDt,
+              location: cleanLoc,
+              description: `${cls.CRSE_TITLE || ''}\nSection ${cls.SEQ_NUMB} | CRN ${cls.CRN}`,
               calendarId,
-              isWaitlist: isWaitlisted,
+              _rawClass: cls, // store reference for custom rendering if needed later
             })
           }
         })
@@ -239,7 +248,7 @@ function ScheduleTab({
             {asyncClasses.map(cls => (
               <div
                 key={`${cls.CRN}-${cls.SEQ_NUMB}`}
-                className={`async-card ${courseColorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`) || 'course-0'}`}
+                className={`async-card ${courseColorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`) || 'course-0'}`}
               >
                 <div className="async-card-header">
                   <span className="async-code">{cls.SUBJ_CODE} {cls.CRSE_NUMB}</span>
