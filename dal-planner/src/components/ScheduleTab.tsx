@@ -11,7 +11,8 @@
 // All calendar state (eventsService, calendar instance) lives here so
 // switching tabs doesn't disturb browse-tab filter state, and vice versa.
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, Component } from 'react'
+import type { ReactNode, ErrorInfo } from 'react'
 import { ScheduleXCalendar, useCalendarApp } from '@schedule-x/react'
 import { createViewWeek } from '@schedule-x/calendar'
 import { createEventsServicePlugin } from '@schedule-x/events-service'
@@ -20,6 +21,45 @@ import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, DAY_CONFIG } from 
 
 // Temporal is injected as a global by the temporal-polyfill package
 declare const Temporal: any
+
+// ── CalendarErrorBoundary ─────────────────────────────────────
+// Catches render-time errors thrown by Schedule-X or any child of
+// the calendar block and displays them in-place instead of crashing
+// the whole tab. Functional components can't use componentDidCatch,
+// so this must remain a class component.
+
+type EBState = { error: Error | null }
+
+class CalendarErrorBoundary extends Component<{ children: ReactNode }, EBState> {
+  constructor(props: { children: ReactNode }) {
+    super(props)
+    this.state = { error: null }
+  }
+
+  static getDerivedStateFromError(error: Error): EBState {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[ScheduleTab] Calendar render error:', error, info.componentStack)
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: '1.5rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, margin: '1rem 0' }}>
+          <strong style={{ color: '#b91c1c' }}>Calendar failed to render</strong>
+          <pre style={{ marginTop: 8, fontSize: 12, color: '#7f1d1d', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {this.state.error.message}
+            {'\n\n'}
+            {this.state.error.stack}
+          </pre>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 type ScheduleTabProps = {
   selectedClasses: any[]            // sections in the active workspace
@@ -45,109 +85,126 @@ function ScheduleTab({
   //   minTime/maxTime — calendar viewport boundaries (padded ±60 min)
   //   hasWeekend     — whether to show Saturday/Sunday columns
   //   courseColorMap — maps "SUBJ-NUMB" to a "course-N" CSS class
-  const { calendarEvents, asyncClasses, minTime, maxTime, hasWeekend, courseColorMap } = useMemo(() => {
-    const evs: any[] = []
-    const asyncCls: any[] = []
-    let earliest = 480   // 8:00 AM default lower bound (minutes since midnight)
-    let latest = 1020    // 17:00 default upper bound
-    let weekend = false
+  const { calendarEvents, asyncClasses, minTime, maxTime, hasWeekend, courseColorMap, buildError } = useMemo(() => {
+    const defaultResult = {
+      calendarEvents: [] as any[],
+      asyncClasses: [] as any[],
+      minTime: '07:00',
+      maxTime: '18:00',
+      hasWeekend: false,
+      courseColorMap: new Map<string, string>(),
+      buildError: null as Error | null,
+    }
+    try {
 
-    // Assign one color per unique course+component (SUBJ + NUMB + TYPE); 
-    const colorMap = new Map<string, string>()
-    let colorIdx = 0
-    selectedClasses.forEach(cls => {
-      const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`
-      if (!colorMap.has(courseKey)) {
-        colorMap.set(courseKey, `course-${colorIdx % COLOR_PALETTE.length}`)
-        colorIdx++
-      }
-    })
+      const evs: any[] = []
+      const asyncCls: any[] = []
+      let earliest = 480   // 8:00 AM default lower bound (minutes since midnight)
+      let latest = 1020    // 17:00 default upper bound
+      let weekend = false
 
-    selectedClasses.forEach(cls => {
-      const timesArr = splitByBr(cls.TIMES)
-      // A section is async/TBA if none of its time values contain a hyphen
-      // (all valid "HHMM-HHMM" ranges have a hyphen)
-      const validTimes = timesArr.filter((t: string) => t.includes('-'))
-      if (validTimes.length === 0) {
-        asyncCls.push(cls)
-        return
-      }
+      // Assign one color per unique course+component (SUBJ + NUMB + TYPE); 
+      const colorMap = new Map<string, string>()
+      let colorIdx = 0
+      selectedClasses.forEach(cls => {
+        const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`
+        if (!colorMap.has(courseKey)) {
+          colorMap.set(courseKey, `course-${colorIdx % COLOR_PALETTE.length}`)
+          colorIdx++
+        }
+      })
 
-      // Parse each day column into arrays (indexed in parallel with timesArr)
-      const mondaysArr = splitByBr(cls.MONDAYS)
-      const tuesdaysArr = splitByBr(cls.TUESDAYS)
-      const wednesdaysArr = splitByBr(cls.WEDNESDAYS)
-      const thursdaysArr = splitByBr(cls.THURSDAYS)
-      const fridaysArr = splitByBr(cls.FRIDAYS)
-      const saturdaysArr = splitByBr(cls.SATURDAYS)
-      const sundaysArr = splitByBr(cls.SUNDAYS)
+      selectedClasses.forEach(cls => {
+        const timesArr = splitByBr(cls.TIMES)
+        // A section is async/TBA if none of its time values contain a hyphen
+        // (all valid "HHMM-HHMM" ranges have a hyphen)
+        const validTimes = timesArr.filter((t: string) => t.includes('-'))
+        if (validTimes.length === 0) {
+          asyncCls.push(cls)
+          return
+        }
 
-      const locsArr = splitByBr(cls.LOCATIONS)
+        // Parse each day column into arrays (indexed in parallel with timesArr)
+        const mondaysArr = splitByBr(cls.MONDAYS)
+        const tuesdaysArr = splitByBr(cls.TUESDAYS)
+        const wednesdaysArr = splitByBr(cls.WEDNESDAYS)
+        const thursdaysArr = splitByBr(cls.THURSDAYS)
+        const fridaysArr = splitByBr(cls.FRIDAYS)
+        const saturdaysArr = splitByBr(cls.SATURDAYS)
+        const sundaysArr = splitByBr(cls.SUNDAYS)
 
-      // Waitlisted sections use the grey "waitlist" calendar instead of
-      // the course color so they're visually distinct.
-      const wlistCnt = Number(cls.WLIST) || 0
-      const isWaitlisted = Number(cls.SEATS) <= 0 && wlistCnt > 0
-      const calendarId = isWaitlisted ? 'waitlist' : (colorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`) || 'course-0')
+        const locsArr = splitByBr(cls.LOCATIONS)
 
-      // Iterate over each time slot (a section can have multiple meeting times)
-      timesArr.forEach((timeStr: string, idx: number) => {
-        const times = parseTimes(timeStr)
-        if (!times) return
-        const startMin = timeToMinutes(times.start)
-        const endMin = timeToMinutes(times.end)
+        // Waitlisted sections use the grey "waitlist" calendar instead of
+        // the course color so they're visually distinct.
+        const wlistCnt = Number(cls.WLIST) || 0
+        const isWaitlisted = Number(cls.SEATS) <= 0 && wlistCnt > 0
+        const calendarId = isWaitlisted ? 'waitlist' : (colorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`) || 'course-0')
 
-        // Expand the viewport bounds to encompass this meeting time
-        earliest = Math.min(earliest, startMin)
-        latest = Math.max(latest, endMin)
+        // Iterate over each time slot (a section can have multiple meeting times)
+        timesArr.forEach((timeStr: string, idx: number) => {
+          const times = parseTimes(timeStr)
+          if (!times) return
+          const startMin = timeToMinutes(times.start)
+          const endMin = timeToMinutes(times.end)
 
-        // Match each day column array against the current time slot index
-        const dayKeys = ['SUNDAYS', 'MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS', 'SATURDAYS'] as const
-        const dayArrs = [sundaysArr, mondaysArr, tuesdaysArr, wednesdaysArr, thursdaysArr, fridaysArr, saturdaysArr]
-        dayKeys.forEach((dayKey, i) => {
-          const config = DAY_CONFIG[dayKey]
-          const dayVal = dayArrs[i][idx]
-          if (dayVal && dayVal.trim() !== '') {
-            if (dayKey === 'SATURDAYS' || dayKey === 'SUNDAYS') weekend = true
-            // Anchor events to the fixed reference week in DAY_CONFIG
-            // Schedule-X v4 requires Temporal.ZonedDateTime for timed events
-            const startDt = Temporal.ZonedDateTime.from(`${config.date}T${times.start}:00[UTC]`)
-            const endDt = Temporal.ZonedDateTime.from(`${config.date}T${times.end}:00[UTC]`)
+          // Expand the viewport bounds to encompass this meeting time
+          earliest = Math.min(earliest, startMin)
+          latest = Math.max(latest, endMin)
 
-            // Clean up the location string by removing HTML tags like <b>
-            const rawLoc = locsArr[idx] || locsArr[0] || ''
-            const cleanLoc = rawLoc.replace(/<[^>]*>/g, '').trim()
+          // Match each day column array against the current time slot index
+          const dayKeys = ['SUNDAYS', 'MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS', 'SATURDAYS'] as const
+          const dayArrs = [sundaysArr, mondaysArr, tuesdaysArr, wednesdaysArr, thursdaysArr, fridaysArr, saturdaysArr]
+          dayKeys.forEach((dayKey, i) => {
+            const config = DAY_CONFIG[dayKey]
+            const dayVal = dayArrs[i][idx]
+            if (dayVal && dayVal.trim() !== '') {
+              if (dayKey === 'SATURDAYS' || dayKey === 'SUNDAYS') weekend = true
+              // Anchor events to the fixed reference week in DAY_CONFIG
+              // Schedule-X v4 requires Temporal.ZonedDateTime for timed events
+              const startDt = Temporal.ZonedDateTime.from(`${config.date}T${times.start}:00[UTC]`)
+              const endDt = Temporal.ZonedDateTime.from(`${config.date}T${times.end}:00[UTC]`)
 
-            evs.push({
-              id: `${cls.CRN}-${cls.SEQ_NUMB}-${dayKey}-${idx}`,
-              title: cls.SUBJ_CODE && cls.CRSE_NUMB
-                ? `${cls.SUBJ_CODE} ${cls.CRSE_NUMB} (${cls.SCHD_TYPE || 'Lec'})`
-                : cls.CRSE_TITLE || `CRN ${cls.CRN}`,
-              start: startDt,
-              end: endDt,
-              location: cleanLoc,
-              description: `${cls.CRSE_TITLE || ''}\nSection ${cls.SEQ_NUMB} | CRN ${cls.CRN}`,
-              calendarId,
-              _rawClass: cls, // store reference for custom rendering if needed later
-            })
-          }
+              // Clean up the location string by removing HTML tags like <b>
+              const rawLoc = locsArr[idx] || locsArr[0] || ''
+              const cleanLoc = rawLoc.replace(/<[^>]*>/g, '').trim()
+
+              evs.push({
+                id: `${cls.CRN}-${cls.SEQ_NUMB}-${dayKey}-${idx}`,
+                title: cls.SUBJ_CODE && cls.CRSE_NUMB
+                  ? `${cls.SUBJ_CODE} ${cls.CRSE_NUMB} (${cls.SCHD_TYPE || 'Lec'})`
+                  : cls.CRSE_TITLE || `CRN ${cls.CRN}`,
+                start: startDt,
+                end: endDt,
+                location: cleanLoc,
+                description: `${cls.CRSE_TITLE || ''}\nSection ${cls.SEQ_NUMB} | CRN ${cls.CRN}`,
+                calendarId,
+                _rawClass: cls, // store reference for custom rendering if needed later
+              })
+            }
+          })
         })
       })
-    })
 
-    // Add ±60 min padding around the earliest and latest meeting times,
-    // clamped to midnight boundaries, then format as "HH:MM"
-    const padE = Math.max(0, earliest - 60)
-    const padL = Math.min(1440, latest + 60)
-    const fmt = (m: number) => `${Math.floor(m / 60).toString().padStart(2, '0')}:${(m % 60).toString().padStart(2, '0')}`
+      // Schedule-X dayBoundaries only accept whole-hour strings ("HH:00").
+      // Floor the start hour and ceil the end hour so the boundary always
+      // covers the actual meeting times after the ±60 min padding.
+      const startHour = Math.max(0, Math.floor((earliest - 60) / 60))
+      const endHour = Math.min(24, Math.ceil((latest + 60) / 60))
+      const toHH = (h: number) => h.toString().padStart(2, '0') + ':00'
 
-    return {
-      calendarEvents: evs,
-      asyncClasses: asyncCls,
-      minTime: fmt(padE),
-      maxTime: fmt(padL),
-      hasWeekend: weekend,
-      courseColorMap: colorMap,
+      return {
+        calendarEvents: evs,
+        asyncClasses: asyncCls,
+        minTime: toHH(startHour),
+        maxTime: toHH(endHour),
+        hasWeekend: weekend,
+        courseColorMap: colorMap,
+        buildError: null as Error | null,
+      }
+    } catch (err) {
+      console.error('[ScheduleTab] Failed to build calendar events:', err)
+      return { ...defaultResult, buildError: err instanceof Error ? err : new Error(String(err)) }
     }
   }, [selectedClasses])
 
@@ -207,6 +264,16 @@ function ScheduleTab({
 
   return (
     <div className="tab-content schedule-tab">
+      {/* Event-build error — shown if useMemo threw while converting classes to calendar events */}
+      {buildError && (
+        <div style={{ padding: '1.5rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, margin: '1rem 0' }}>
+          <strong style={{ color: '#b91c1c' }}>Failed to build schedule events</strong>
+          <pre style={{ marginTop: 8, fontSize: 12, color: '#7f1d1d', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {buildError.message}{'\n\n'}{buildError.stack}
+          </pre>
+        </div>
+      )}
+
       {/* Conflict banner — shown at the top so it's immediately visible */}
       {conflicts.size > 0 && (
         <div className="conflict-banner">
@@ -235,9 +302,11 @@ function ScheduleTab({
       </div>
 
       {/* Schedule-X weekly calendar */}
-      <div className="calendar-full">
-        <ScheduleXCalendar calendarApp={calendar} />
-      </div>
+      <CalendarErrorBoundary>
+        <div className="calendar-full">
+          <ScheduleXCalendar calendarApp={calendar} />
+        </div>
+      </CalendarErrorBoundary>
 
       {/* Async/TBA section — card grid below the calendar for courses with
           no fixed schedule (online-only or time not yet announced) */}
