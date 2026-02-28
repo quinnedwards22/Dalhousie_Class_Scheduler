@@ -737,7 +737,11 @@
 }
 
 .data-table tbody tr.row-lab {
-  background-color: #F8FAFC;
+  background-color: #FFFBEB;
+}
+
+.data-table tbody tr.row-tut {
+  background-color: #F0F7FF;
 }
 
 .data-table tbody tr.row-has-note td {

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import requests
 
-# --- Configuration ---
+# Config
 BASE_URL = "https://self-service.dal.ca/BannerExtensibility"
 TIMETABLE_PAGE = f"{BASE_URL}/customPage/page/dal.stuweb_academicTimetable"
 API_URL = f"{BASE_URL}/internalPb/virtualDomains.dal_stuweb_academicTimetable"

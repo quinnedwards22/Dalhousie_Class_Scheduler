@@ -44,7 +44,8 @@ export const rowTypeClass = (schdType: string) => {
   if (!schdType) return ''
   const t = schdType.trim().toLowerCase()
   if (t === 'lec') return 'row-lec'
-  if (t === 'lab' || t === 'tut') return 'row-lab'
+  if (t === 'lab') return 'row-lab'
+  if (t === 'tut') return 'row-tut'
   return ''
 }
 

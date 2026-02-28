@@ -11,13 +11,14 @@
 // All calendar state (eventsService, calendar instance) lives here so
 // switching tabs doesn't disturb browse-tab filter state, and vice versa.
 
-import { useState, useMemo, useEffect, Component } from 'react'
+import { useState, useMemo, useEffect, useRef, Component } from 'react'
 import type { ReactNode, ErrorInfo } from 'react'
 import { ScheduleXCalendar, useCalendarApp } from '@schedule-x/react'
 import { createViewWeek } from '@schedule-x/calendar'
 import { createEventsServicePlugin } from '@schedule-x/events-service'
 import '@schedule-x/theme-default/dist/calendar.css'
 import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, DAY_CONFIG } from '../utils/classUtils'
+import { exportICS, exportCSV, exportPNG, exportPDF } from '../utils/exportUtils'
 
 // Temporal is injected as a global by the temporal-polyfill package
 declare const Temporal: any
@@ -65,6 +66,7 @@ type ScheduleTabProps = {
   selectedClasses: any[]            // sections in the active workspace
   conflicts: Map<string, string[]>  // used to show the conflict banner
   totalCredits: number
+  workspaceName: string
   toggleClassSelection: (cls: any) => void
   setActiveTab: (tab: 'browse' | 'schedule') => void
 }
@@ -73,9 +75,27 @@ function ScheduleTab({
   selectedClasses,
   conflicts,
   totalCredits,
+  workspaceName,
   toggleClassSelection,
   setActiveTab,
 }: ScheduleTabProps) {
+
+  // ── Export dropdown ──────────────────────────────────────────
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
+  const captureRef = useRef<HTMLDivElement>(null)
+
+  // Close the dropdown when the user clicks outside it
+  useEffect(() => {
+    if (!showExportMenu) return
+    function handleClick(e: MouseEvent) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showExportMenu])
 
   // ── Calendar data derivation ─────────────────────────────────
   //
@@ -283,10 +303,30 @@ function ScheduleTab({
 
       {/* Summary row + selected-class chips with remove buttons */}
       <div className="schedule-header">
-        <div className="schedule-stats">
-          <span className="stat-item">{selectedClasses.length} class{selectedClasses.length > 1 ? 'es' : ''}</span>
-          <span className="stat-dot">·</span>
-          <span className="stat-item">{totalCredits} credit hour{totalCredits !== 1 ? 's' : ''}</span>
+        <div className="schedule-stats-row">
+          <div className="schedule-stats">
+            <span className="stat-item">{selectedClasses.length} class{selectedClasses.length > 1 ? 'es' : ''}</span>
+            <span className="stat-dot">·</span>
+            <span className="stat-item">{totalCredits} credit hour{totalCredits !== 1 ? 's' : ''}</span>
+          </div>
+          <div className="export-menu-wrapper" ref={exportMenuRef}>
+            <button
+              className="export-btn"
+              onClick={() => setShowExportMenu(v => !v)}
+              aria-haspopup="true"
+              aria-expanded={showExportMenu}
+            >
+              Export ▾
+            </button>
+            {showExportMenu && (
+              <div className="export-dropdown" role="menu">
+                <button role="menuitem" onClick={() => { exportICS(selectedClasses, workspaceName); setShowExportMenu(false) }}>ICS Calendar</button>
+                <button role="menuitem" onClick={() => { exportCSV(selectedClasses); setShowExportMenu(false) }}>CSV Spreadsheet</button>
+                <button role="menuitem" onClick={() => { exportPNG(captureRef.current!); setShowExportMenu(false) }}>PNG Image</button>
+                <button role="menuitem" onClick={() => { exportPDF(captureRef.current!, workspaceName); setShowExportMenu(false) }}>PDF Document</button>
+              </div>
+            )}
+          </div>
         </div>
         <div className="schedule-chips">
           {selectedClasses.map(sc => (
@@ -301,43 +341,47 @@ function ScheduleTab({
         </div>
       </div>
 
-      {/* Schedule-X weekly calendar */}
-      <CalendarErrorBoundary>
-        <div className="calendar-full">
-          <ScheduleXCalendar calendarApp={calendar} />
-        </div>
-      </CalendarErrorBoundary>
+      {/* Capture target for PNG/PDF export — wraps calendar + async section */}
+      <div ref={captureRef}>
 
-      {/* Async/TBA section — card grid below the calendar for courses with
-          no fixed schedule (online-only or time not yet announced) */}
-      {asyncClasses.length > 0 && (
-        <div className="async-section">
-          <h3 className="async-title">Asynchronous & TBA Courses</h3>
-          <div className="async-grid">
-            {asyncClasses.map(cls => (
-              <div
-                key={`${cls.CRN}-${cls.SEQ_NUMB}`}
-                className={`async-card ${courseColorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`) || 'course-0'}`}
-              >
-                <div className="async-card-header">
-                  <span className="async-code">{cls.SUBJ_CODE} {cls.CRSE_NUMB}</span>
-                  <span className="async-sec">Sec {cls.SEQ_NUMB}</span>
-                </div>
-                <div className="async-title-text">{cls.CRSE_TITLE}</div>
-                <div className="async-info">
-                  <span>{cls.CREDIT_HRS} Cr Hrs</span>
-                  <span>·</span>
-                  <span>CRN {cls.CRN}</span>
-                </div>
-                {/* Show the raw TIMES value (e.g. "Online" or "TBA") or a fallback */}
-                <div className="async-times">
-                  {splitByBr(cls.TIMES).join(', ') || 'Online / TBA'}
-                </div>
-              </div>
-            ))}
+        {/* Schedule-X weekly calendar */}
+        <CalendarErrorBoundary>
+          <div className="calendar-full">
+            <ScheduleXCalendar calendarApp={calendar} />
           </div>
-        </div>
-      )}
+        </CalendarErrorBoundary>
+
+        {/* Async/TBA section — card grid below the calendar for courses with
+          no fixed schedule (online-only or time not yet announced) */}
+        {asyncClasses.length > 0 && (
+          <div className="async-section">
+            <h3 className="async-title">Asynchronous & TBA Courses</h3>
+            <div className="async-grid">
+              {asyncClasses.map(cls => (
+                <div
+                  key={`${cls.CRN}-${cls.SEQ_NUMB}`}
+                  className={`async-card ${courseColorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`) || 'course-0'}`}
+                >
+                  <div className="async-card-header">
+                    <span className="async-code">{cls.SUBJ_CODE} {cls.CRSE_NUMB}</span>
+                    <span className="async-sec">Sec {cls.SEQ_NUMB}</span>
+                  </div>
+                  <div className="async-title-text">{cls.CRSE_TITLE}</div>
+                  <div className="async-info">
+                    <span>{cls.CREDIT_HRS} Cr Hrs</span>
+                    <span>·</span>
+                    <span>CRN {cls.CRN}</span>
+                  </div>
+                  {/* Show the raw TIMES value (e.g. "Online" or "TBA") or a fallback */}
+                  <div className="async-times">
+                    {splitByBr(cls.TIMES).join(', ') || 'Online / TBA'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>{/* end captureRef */}
     </div>
   )
 }
