@@ -13,6 +13,12 @@ venv/
 # Data files (generated/scraped)
 data.json
 data.csv
+all_classes_*.json
+all_classes_*.csv
+
+# Node
+node_modules/
+dal-planner/dist/
 
 # OS files
 .DS_Store
