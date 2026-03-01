@@ -20,6 +20,9 @@ all_classes_*.csv
 node_modules/
 dal-planner/dist/
 
+# Claude Code
+.claude/
+
 # OS files
 .DS_Store
 Thumbs.db

@@ -439,6 +439,7 @@ function App() {
               totalCredits={totalCredits}
               toggleClassSelection={toggleClassSelection}
               setActiveTab={setActiveTab}
+              workspaceName={activeWorkspace.name}
             />
           )}
         </>
