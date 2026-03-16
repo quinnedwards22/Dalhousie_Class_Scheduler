@@ -41,8 +41,8 @@ function App() {
   const [envError, setEnvError] = useState(false)
 
   // termFilter drives the Supabase query; changing it triggers a re-fetch.
-  // Default: Fall 2025/26 (202610).
-  const [termFilter, setTermFilter] = useState<Set<string>>(new Set(['202610']))
+  // Default: Fall 2026/27 (202710).
+  const [termFilter, setTermFilter] = useState<Set<string>>(new Set(['202710']))
 
   // ── Workspace state ──────────────────────────────────────────
   //
@@ -188,7 +188,7 @@ function App() {
               const { data, error } = await supabase
                 .from('dalhousie_classes')
                 .select(`
-                  subj_code, crse_numb, note_row, crn, seq_numb, schd_type, schd_code,
+                  row_number, subj_code, crse_numb, note_row, crn, seq_numb, schd_type, schd_code,
                   credit_hrs, link_conn,
                   mondays, tuesdays, wednesdays, thursdays, fridays, saturdays, sundays, crse_title,
                   times, locations, max_enrl, enrl, seats, wlist,
@@ -197,6 +197,7 @@ function App() {
                   term_code, ptrm_code, start_date, end_date
                 `)
                 .eq('term_code', term)
+                .order('row_number', { ascending: true })
                 .range(from, from + PAGE_SIZE - 1)
 
               if (error || !data) {
@@ -221,6 +222,15 @@ function App() {
       }
 
       const allClasses = terms.flatMap(t => termCache.get(t) ?? [])
+      allClasses.sort((a, b) => {
+        const subj = (a.SUBJ_CODE || '').localeCompare(b.SUBJ_CODE || '')
+        if (subj !== 0) return subj
+        const crse = (a.CRSE_NUMB || '').localeCompare(b.CRSE_NUMB || '')
+        if (crse !== 0) return crse
+        const term = (a.TERM_CODE || '').localeCompare(b.TERM_CODE || '')
+        if (term !== 0) return term
+        return (a.ROW_NUMBER || 0) - (b.ROW_NUMBER || 0)
+      })
       setClasses(allClasses)
 
       // Prune selected classes that aren't in the new roster

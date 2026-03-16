@@ -14,6 +14,7 @@ CLASS_URL = f"{BASE_URL}/internalPb/virtualDomains.dal_stuweb_academicTimetable"
 TERMS_URL = f"{BASE_URL}/internalPb/virtualDomains.dal_stuweb_academicTimetable_terms"
 DISTRICTS_URL = f"{BASE_URL}/internalPb/virtualDomains.dal_stuweb_academicTimetable_districts"
 SUBJECTS_URL = f"{BASE_URL}/internalPb/virtualDomains.dal_stuweb_academicTimetable_subjects"
+RESTRICTIONS_URL = f"{BASE_URL}/internalPb/virtualDomains.dal_stuweb_academicTimetable_restrictions"
 
 SEEDS_PATH = Path(__file__).parent.parent / "seeds.json"
 
@@ -212,10 +213,105 @@ async def query_subject(
 
 
 # ---------------------------------------------------------------------------
+# Restriction queries
+# ---------------------------------------------------------------------------
+
+
+async def query_restrictions(
+    session: aiohttp.ClientSession,
+    token: str,
+    term_code: str,
+    crn: str,
+    restr_ind: str,
+    sem: asyncio.Semaphore,
+) -> list[dict]:
+    """Query restrictions for a single CRN. Returns raw API rows or []."""
+    params = {
+        "term_code": term_code,
+        "crn": crn,
+        "restr_ind": restr_ind,
+        "offset": "0",
+        "max": "100",
+    }
+    headers = {
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-Synchronizer-Token": token,
+        "Referer": TIMETABLE_PAGE,
+    }
+
+    async with sem:
+        for attempt in range(1, 4):
+            try:
+                async with session.get(
+                    RESTRICTIONS_URL,
+                    params=params,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status != 200:
+                        if attempt == 3:
+                            return []
+                    else:
+                        payload = await resp.json(content_type=None)
+                        if isinstance(payload, list):
+                            return payload
+            except Exception:
+                pass
+            await asyncio.sleep(attempt * 0.5)
+
+    return []
+
+
+async def scrape_restrictions(
+    session: aiohttp.ClientSession,
+    token: str,
+    class_rows: list[dict],
+    sem: asyncio.Semaphore,
+) -> list[dict]:
+    """Scrape restrictions for all unique CRNs found in class_rows."""
+    # Extract unique (term_code, crn) pairs
+    unique_crns = sorted(
+        {(row.get("TERM_CODE", ""), row.get("CRN", "")) for row in class_rows}
+    )
+    unique_crns = [(t, c) for t, c in unique_crns if t and c]
+
+    print(f"Scraping restrictions for {len(unique_crns)} unique CRNs...")
+
+    # Build tasks: two per CRN (Include + Exclude)
+    tasks = []
+    task_meta = []
+    for term_code, crn in unique_crns:
+        for ind in ("I", "E"):
+            tasks.append(query_restrictions(session, token, term_code, crn, ind, sem))
+            task_meta.append((term_code, crn, ind))
+
+    results = await asyncio.gather(*tasks)
+
+    # Flatten into restriction rows
+    restriction_rows: list[dict] = []
+    for (term_code, crn, ind), rows in zip(task_meta, results):
+        for row in rows:
+            restriction_rows.append({
+                "term_code": term_code,
+                "crn": crn,
+                "restr_ind": ind,
+                "restr_type": row.get("RESTR_TYPE", ""),
+                "restr_descr": row.get("RESTR_DESCR_LIST", ""),
+            })
+
+    print(
+        f"Restriction scrape complete. {len(restriction_rows)} restriction rows "
+        f"found across {len(unique_crns)} CRNs."
+    )
+    return restriction_rows
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
-async def scrape_all() -> list[dict]:
+async def scrape_all() -> tuple[list[dict], list[dict]]:
     connector = aiohttp.TCPConnector(limit=MAX_CONCURRENT)
     headers = {"User-Agent": USER_AGENT}
 
@@ -276,4 +372,14 @@ async def scrape_all() -> list[dict]:
         f"Scrape complete. {non_empty}/{len(subjects)} subjects with data. "
         f"{len(all_rows)} total rows (deduped)."
     )
-    return all_rows
+
+    # Scrape restrictions using the same session and token
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=MAX_CONCURRENT), headers=headers) as restr_session:
+        restr_token = await get_token(restr_session)
+        if not restr_token:
+            print("Could not acquire token for restrictions, skipping.")
+            return all_rows, []
+        restr_sem = asyncio.Semaphore(MAX_CONCURRENT)
+        restriction_rows = await scrape_restrictions(restr_session, restr_token, all_rows, restr_sem)
+
+    return all_rows, restriction_rows

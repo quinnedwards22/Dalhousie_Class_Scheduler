@@ -16,8 +16,10 @@
 
 import React, { useState, useMemo, useCallback } from 'react'
 import { splitByBr, DAY_LETTER_TO_KEY } from '../utils/classUtils'
+import { supabase } from '../utils/supabase'
 import ClassRow from './ClassRow'
 import PaginationControls from './PaginationControls'
+import RestrictionModal from './RestrictionModal'
 
 type BrowseTabProps = {
   classes: any[]                        // full roster for the selected term(s)
@@ -60,6 +62,21 @@ function BrowseTab({
   const [locationFilter, setLocationFilter] = useState<Set<string>>(new Set(['Halifax', 'Truro', 'Online', 'Others']))
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(20)
+
+  // Restriction modal state
+  const [restrictionModal, setRestrictionModal] = useState<{
+    crn: string; cls: any; data: any[] | null; loading: boolean
+  } | null>(null)
+
+  const showRestrictions = useCallback(async (crn: string, cls: any) => {
+    setRestrictionModal({ crn, cls, data: null, loading: true })
+    const { data } = await supabase
+      .from('class_restrictions')
+      .select('*')
+      .eq('crn', crn)
+      .eq('term_code', cls.TERM_CODE)
+    setRestrictionModal({ crn, cls, data: data ?? [], loading: false })
+  }, [])
 
   // True when all four location categories are selected — used to skip the
   // per-class location check in filteredClasses for a small perf gain.
@@ -178,7 +195,7 @@ function BrowseTab({
     const groups: { key: string; code: string; title: string; termInfo: string; equiv: string; sections: any[] }[] = []
     const map = new Map<string, number>()  // course key → index in groups array
     paginatedClasses.forEach(cls => {
-      const key = `${cls.SUBJ_CODE || ''}-${cls.CRSE_NUMB || ''}`
+      const key = `${cls.SUBJ_CODE || ''}-${cls.CRSE_NUMB || ''}-${cls.TERM_CODE || ''}`
       if (!map.has(key)) {
         map.set(key, groups.length)
         const ptrm = cls.PTRM_CODE ? `(${cls.PTRM_CODE})` : ''
@@ -234,10 +251,10 @@ function BrowseTab({
         <div className="filter-group">
           <h3 className="filter-group-title">Terms:</h3>
           <div className="filter-checkboxes">
-            <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202600')} onChange={() => toggleTerm('202600')} /> (202600) 2025/2026 Medicine/Dentistry</label>
-            <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202610')} onChange={() => toggleTerm('202610')} /> (202610) 2025/2026 Fall</label>
-            <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202620')} onChange={() => toggleTerm('202620')} /> (202620) 2025/2026 Winter</label>
             <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202630')} onChange={() => toggleTerm('202630')} /> (202630) 2025/2026 Summer</label>
+            <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202700')} onChange={() => toggleTerm('202700')} /> (202700) 2026/2027 Medicine/Dentistry</label>
+            <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202710')} onChange={() => toggleTerm('202710')} /> (202710) 2026/2027 Fall</label>
+            <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202720')} onChange={() => toggleTerm('202720')} /> (202720) 2026/2027 Winter</label>
           </div>
         </div>
 
@@ -396,6 +413,7 @@ function BrowseTab({
                         missingLinkTokens={missingLinks.get(id)}
                         searchQuery={searchQuery}
                         onToggle={toggleClassSelection}
+                        onShowRestrictions={showRestrictions}
                       />
                     )
                   })}
@@ -456,6 +474,14 @@ function BrowseTab({
             View Schedule →
           </button>
         </div>
+      )}
+      {restrictionModal && (
+        <RestrictionModal
+          cls={restrictionModal.cls}
+          data={restrictionModal.data}
+          loading={restrictionModal.loading}
+          onClose={() => setRestrictionModal(null)}
+        />
       )}
     </div>
   )

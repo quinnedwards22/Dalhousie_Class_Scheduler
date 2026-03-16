@@ -22,7 +22,7 @@ PARAMS_MAP = {
 
 # Search parameters
 search_data = {
-    "terms": "202620;",               # Term code (Summer 2026)
+    "terms": "202630;202700;202720;202710;",  # Open terms: Summer 25/26, Medicine/Dentistry 26/27, Winter 26/27, Fall 26/27
     "subj_code": "CSCI",              # Subject code
     "districts": "100;200;300;400;",  # Campus districts
     "max": "1000",

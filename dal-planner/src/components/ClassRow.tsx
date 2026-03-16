@@ -24,6 +24,7 @@ type ClassRowProps = {
   missingLinkTokens?: string[]  // e.g. ["B0", "T0"] — which companion types are still needed
   searchQuery: string           // current search text, used to highlight CRN matches
   onToggle: (cls: any) => void
+  onShowRestrictions: (crn: string, cls: any) => void
 }
 
 /**
@@ -56,6 +57,7 @@ const ClassRow = React.memo(function ClassRow({
   missingLinkTokens,
   searchQuery,
   onToggle,
+  onShowRestrictions,
 }: ClassRowProps) {
   const noteVal = (cls.NOTE_ROW || '').trim()      // short inline note shown in the first column
   const noteBottom = (cls.NOTE_BOTTOM || '').trim() // multi-line note shown in a sub-row below
@@ -87,7 +89,18 @@ const ClassRow = React.memo(function ClassRow({
     <React.Fragment>
       {/* ── Main data row ── */}
       <tr className={rowClass}>
-        <td className="cell-note">{noteVal}</td>
+        <td className="cell-note">
+          {noteVal.includes('R') ? (
+            <>
+              {noteVal.replace(/R/g, '')}
+              <button
+                className="restriction-badge"
+                onClick={(e) => { e.stopPropagation(); onShowRestrictions(String(cls.CRN), cls) }}
+                title="View restrictions"
+              >R</button>
+            </>
+          ) : noteVal}
+        </td>
 
         {/* Selection checkbox — disabled and titled when the link constraint blocks it */}
         <td className="cell-select">

@@ -7,7 +7,7 @@ from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 
 from scheduler.scraper import scrape_all
-from scheduler.uploader import upload
+from scheduler.uploader import upload, upload_restrictions
 
 state: dict = {
     "running": False,
@@ -31,9 +31,11 @@ async def run_pipeline() -> None:
     print(f"[{start.isoformat()}] Pipeline started.")
 
     try:
-        rows = await scrape_all()
+        rows, restriction_rows = await scrape_all()
         count = await upload(rows)
+        restr_count = await upload_restrictions(restriction_rows)
         state["last_run_rows"] = count
+        state["last_run_restrictions"] = restr_count
     except Exception as e:
         state["last_error"] = str(e)
         print(f"Pipeline error: {e}")

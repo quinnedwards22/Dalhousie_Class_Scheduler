@@ -12,13 +12,10 @@ BASE_URL = "https://self-service.dal.ca/BannerExtensibility"
 TIMETABLE_PAGE = f"{BASE_URL}/customPage/page/dal.stuweb_academicTimetable"
 API_URL = f"{BASE_URL}/internalPb/virtualDomains.dal_stuweb_academicTimetable"
 
-DEFAULT_SUBJECTS_SOURCE = Path("all_classes_202620.json")
-DEFAULT_TERMS = "202600;202610;202620;202630;"
+DEFAULT_SUBJECTS_SOURCE = Path("seeds.json")
+DEFAULT_TERMS = "202630;202700;202720;202710;"
 DEFAULT_DISTRICTS = "100;200;300;400;"
-DEFAULT_OUTPUT_PREFIX = "all_classes_2025_2026"
-# 202600 (Medicine/Dentistry) includes subject codes not present in the 202620 seed file.
-REQUIRED_SUBJECTS = {"DEHY", "DENT", "MEDI", "REGN"}
-
+DEFAULT_OUTPUT_PREFIX = "all_classes_2026_2027"
 SEARCH_DATA_TEMPLATE = {
     "districts": DEFAULT_DISTRICTS,
     "max": "1000",
@@ -33,7 +30,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description=(
             "Query Dal timetable for all subject codes from an existing JSON file. "
-            "By default this queries all 2025/2026 terms in one request per subject."
+            "By default this queries all 2026/2027 terms in one request per subject."
         )
     )
     parser.add_argument(
@@ -44,7 +41,7 @@ def parse_args():
     parser.add_argument(
         "--terms",
         default=DEFAULT_TERMS,
-        help="Semicolon-delimited term list ending with ';' (e.g. 202600;202610;202620;202630;).",
+        help="Semicolon-delimited term list ending with ';' (e.g. 202630;202700;202720;202710;).",
     )
     parser.add_argument(
         "--districts",
@@ -117,12 +114,15 @@ def load_subject_codes(source_file):
     with source_file.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
+    if isinstance(data, dict) and "subjects" in data:
+        return sorted(data["subjects"])
+
+    # Legacy format: list of row objects with SUBJ_CODE
     subjects = {
         str((row.get("SUBJ_CODE") or row.get("subj_code") or "")).strip().upper()
         for row in data
     }
     subjects.discard("")
-    subjects.update(REQUIRED_SUBJECTS)
     return sorted(subjects)
 
 
