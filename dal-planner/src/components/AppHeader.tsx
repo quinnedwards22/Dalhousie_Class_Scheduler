@@ -1,13 +1,3 @@
-// ── AppHeader ──────────────────────────────────────────────────
-// Sticky top bar rendered on every tab. Contains:
-//   • App title and academic year badge
-//   • Workspace selector (drop-down to switch/create plans)
-//   • Tab navigation (Browse / My Schedule)
-//   • Summary status chips: conflict count, missing link count, credit total
-//
-// Wrapped in React.memo so it only re-renders when its props change —
-// filter or search activity in the browse tab won't cause it to repaint.
-
 import React, { useState, useEffect } from 'react'
 
 type Workspace = { id: string; name: string; classes: any[] }
@@ -20,10 +10,10 @@ type AppHeaderProps = {
   createWorkspace: () => void
   switchWorkspace: (id: string) => void
   deleteWorkspace: (id: string) => void
-  selectedCount: number   // number of sections in the active workspace
-  totalCredits: number    // sum of credit hours across selected sections
-  conflictCount: number   // number of sections with a time conflict
-  missingLinkCount: number // number of sections missing a required companion
+  selectedCount: number
+  totalCredits: number
+  conflictCount: number
+  missingLinkCount: number
 }
 
 const AppHeader = React.memo(function AppHeader({
@@ -41,9 +31,7 @@ const AppHeader = React.memo(function AppHeader({
   const [showHint, setShowHint] = useState(true)
 
   useEffect(() => {
-    // Hide the automatic hint after 5 seconds
     const timer = setTimeout(() => setShowHint(false), 5000)
-    // Also hide if they switch tabs
     if (activeTab === 'schedule') setShowHint(false)
     return () => clearTimeout(timer)
   }, [activeTab])
@@ -55,7 +43,6 @@ const AppHeader = React.memo(function AppHeader({
         <span className="dal-badge">2026–27</span>
       </div>
 
-      {/* Workspace selector — choosing "NEW" triggers workspace creation */}
       <div className="workspace-selector">
         <select
           value={appState.activeWorkspaceId}
@@ -69,7 +56,6 @@ const AppHeader = React.memo(function AppHeader({
           ))}
           <option value="NEW">+ New Plan...</option>
         </select>
-        {/* Delete button is hidden when only one workspace remains */}
         {appState.workspaces.length > 1 && (
           <button className="workspace-delete" onClick={() => deleteWorkspace(appState.activeWorkspaceId)} title="Delete Plan">
             ✕
@@ -77,7 +63,6 @@ const AppHeader = React.memo(function AppHeader({
         )}
       </div>
 
-      {/* Primary tab navigation */}
       <nav className="header-tabs">
         <button
           className={`header-tab ${activeTab === 'browse' ? 'active' : ''}`}
@@ -91,7 +76,6 @@ const AppHeader = React.memo(function AppHeader({
             onClick={() => setActiveTab('schedule')}
           >
             My Schedule
-            {/* Badge shows how many sections are currently selected */}
             {selectedCount > 0 && (
               <span className="tab-badge">{selectedCount}</span>
             )}
@@ -106,7 +90,6 @@ const AppHeader = React.memo(function AppHeader({
 
       <div className="header-spacer" />
 
-      {/* Status chips — only render when there is something to report */}
       {missingLinkCount > 0 && (
         <span className="header-conflict" style={{ backgroundColor: '#fef08a', color: '#854d0e' }}>
           {missingLinkCount} missing link{missingLinkCount > 1 ? 's' : ''}

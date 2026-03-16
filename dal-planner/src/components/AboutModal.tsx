@@ -29,6 +29,17 @@ function AboutModal({ onClose }: AboutModalProps) {
           collected from users.
         </p>
 
+        <div className="about-built-by">
+          <span className="about-built-by-name">Built by Quinn Edwards</span>
+          <div className="about-built-by-links">
+            <a href="https://www.linkedin.com/in/quinnedwards22/" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+            <span className="about-built-by-sep">·</span>
+            <a href="https://github.com/quinnedwards22" target="_blank" rel="noopener noreferrer">GitHub</a>
+            <span className="about-built-by-sep">·</span>
+            <a href="mailto:quinnedwards22@gmail.com">quinnedwards22@gmail.com</a>
+          </div>
+        </div>
+
         <div className="restr-footer">
           <button className="restr-ok-btn" onClick={onClose}>Ok</button>
         </div>

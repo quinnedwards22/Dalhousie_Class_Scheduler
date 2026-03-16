@@ -1569,6 +1569,36 @@
   line-height: 1.55;
   margin: 10px 0;
 }
+.about-built-by {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #e5e7eb;
+  text-align: center;
+}
+.about-built-by-name {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 4px;
+}
+.about-built-by-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+.about-built-by-links a {
+  color: #2563eb;
+  text-decoration: none;
+}
+.about-built-by-links a:hover {
+  text-decoration: underline;
+}
+.about-built-by-sep {
+  color: #9ca3af;
+}
 
 /* ── Data Accuracy Note ─────────────────────────────── */
 .data-accuracy-note {
