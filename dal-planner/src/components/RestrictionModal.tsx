@@ -56,7 +56,7 @@ function RestrictionModal({ cls, data, loading, onClose }: RestrictionModalProps
           <>
             {includeRows.length > 0 && (
               <div className="restr-section">
-                <p className="restr-section-title"><strong>Restricted to students in:</strong></p>
+                <p className="restr-section-title"><strong>Restrictions:</strong></p>
                 {includeRows.map((r: RestrictionData, i: number) => (
                   <p key={`i-${i}`} className="restr-row"><strong>{r.restr_type}:</strong> {r.restr_descr}</p>
                 ))}
@@ -64,7 +64,7 @@ function RestrictionModal({ cls, data, loading, onClose }: RestrictionModalProps
             )}
             {excludeRows.length > 0 && (
               <div className="restr-section">
-                <p className="restr-section-title"><strong>Not open to students in:</strong></p>
+                <p className="restr-section-title"><strong>Restrictions:</strong></p>
                 {excludeRows.map((r: RestrictionData, i: number) => (
                   <p key={`e-${i}`} className="restr-row"><strong>{r.restr_type}:</strong> {r.restr_descr}</p>
                 ))}
