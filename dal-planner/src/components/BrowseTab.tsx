@@ -14,7 +14,7 @@
 //   PaginationControls (bottom)
 //   Mini-preview bar (sticky, visible when ≥1 class selected)
 
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { splitByBr, DAY_LETTER_TO_KEY } from '../utils/classUtils'
 import { supabase } from '../utils/supabase'
 import ClassRow from './ClassRow'
@@ -33,6 +33,7 @@ type BrowseTabProps = {
   setActiveTab: (tab: 'browse' | 'schedule') => void
   termFilter: Set<string>               // lives in App because changing it triggers a fetch
   toggleTerm: (term: string) => void
+  lastRefreshed: string | null
 }
 
 function BrowseTab({
@@ -47,21 +48,45 @@ function BrowseTab({
   setActiveTab,
   termFilter,
   toggleTerm,
+  lastRefreshed,
 }: BrowseTabProps) {
   // ── Filter state ─────────────────────────────────────────────
   // All filter state is local to BrowseTab so that changing a filter
   // doesn't cause App or ScheduleTab to re-render.
+  // Filters are restored from localStorage so they persist between visits.
+
+  const savedFilters = useMemo(() => {
+    try {
+      const stored = localStorage.getItem('dal-planner-filters')
+      if (stored) return JSON.parse(stored)
+    } catch (_e) { }
+    return null
+  }, [])
 
   const [searchQuery, setSearchQuery] = useState('')
-  const [subjectFilter, setSubjectFilter] = useState('')  // exact SUBJ_CODE match
-  const [typeFilter, setTypeFilter] = useState('')         // lec | lab | tut
-  const [dayFilter, setDayFilter] = useState<Set<string>>(new Set())  // M/T/W/R/F
-  const [seatsAvailFilter, setSeatsAvailFilter] = useState(false)  // hide full sections
-  const [hideCDFilter, setHideCDFilter] = useState(false)           // hide C/D-scheduled sections
-  // Location defaults to all four categories selected (equivalent to "show all")
-  const [locationFilter, setLocationFilter] = useState<Set<string>>(new Set(['Halifax', 'Truro', 'Online', 'Others']))
+  const [subjectFilter, setSubjectFilter] = useState(savedFilters?.subject ?? '')
+  const [typeFilter, setTypeFilter] = useState(savedFilters?.type ?? '')
+  const [dayFilter, setDayFilter] = useState<Set<string>>(() => new Set(savedFilters?.days ?? []))
+  const [seatsAvailFilter, setSeatsAvailFilter] = useState(savedFilters?.seatsAvail ?? false)
+  const [hideCDFilter, setHideCDFilter] = useState(savedFilters?.hideCD ?? false)
+  const [locationFilter, setLocationFilter] = useState<Set<string>>(
+    () => new Set(savedFilters?.location ?? ['Halifax', 'Truro', 'Online', 'Others'])
+  )
   const [currentPage, setCurrentPage] = useState(1)
-  const [rowsPerPage, setRowsPerPage] = useState(20)
+  const [rowsPerPage, setRowsPerPage] = useState(savedFilters?.rowsPerPage ?? 20)
+
+  // Persist filters to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('dal-planner-filters', JSON.stringify({
+      subject: subjectFilter,
+      type: typeFilter,
+      days: Array.from(dayFilter),
+      seatsAvail: seatsAvailFilter,
+      hideCD: hideCDFilter,
+      location: Array.from(locationFilter),
+      rowsPerPage,
+    }))
+  }, [subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter, locationFilter, rowsPerPage])
 
   // Restriction modal state
   const [restrictionModal, setRestrictionModal] = useState<{
@@ -343,6 +368,14 @@ function BrowseTab({
         </div>
       )}
 
+      {/* Data accuracy notice */}
+      {classes.length > 0 && (
+        <p className="data-accuracy-note">
+          Course data is sourced from Dalhousie's public timetable and refreshed every couple hours.
+          It may be incomplete or out of date. Do not rely on this tool for final registration decisions.
+        </p>
+      )}
+
       {/* Top pagination bar — hidden when no data has loaded */}
       {classes.length > 0 && (
         <PaginationControls
@@ -351,6 +384,7 @@ function BrowseTab({
           totalCount={filteredClasses.length}
           onPageChange={setCurrentPage}
           onRowsPerPageChange={setRowsPerPage}
+          lastRefreshed={lastRefreshed}
         />
       )}
 
@@ -432,6 +466,7 @@ function BrowseTab({
           totalCount={filteredClasses.length}
           onPageChange={setCurrentPage}
           onRowsPerPageChange={setRowsPerPage}
+          lastRefreshed={lastRefreshed}
         />
       )}
 

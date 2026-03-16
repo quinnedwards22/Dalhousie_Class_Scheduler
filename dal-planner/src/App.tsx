@@ -5,6 +5,7 @@ import { splitByBr, parseTimes, timeToMinutes, parseLinkTokens, getLinkGroupNum 
 import AppHeader from './components/AppHeader'
 import BrowseTab from './components/BrowseTab'
 import ScheduleTab from './components/ScheduleTab'
+import AboutModal from './components/AboutModal'
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -37,12 +38,23 @@ const termCache = new Map<string, any[]>()
 function App() {
   const [classes, setClasses] = useState<any[]>([])   // full class roster for the selected term(s)
   const [loading, setLoading] = useState(true)
+  const [lastRefreshed, setLastRefreshed] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'browse' | 'schedule'>('browse')
   const [envError, setEnvError] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
+  const [bannerDismissed, setBannerDismissed] = useState(
+    () => localStorage.getItem('dal-planner-banner-dismissed') === '1'
+  )
 
   // termFilter drives the Supabase query; changing it triggers a re-fetch.
-  // Default: Fall 2026/27 (202710).
-  const [termFilter, setTermFilter] = useState<Set<string>>(new Set(['202710']))
+  // Restored from localStorage; defaults to empty (no terms selected).
+  const [termFilter, setTermFilter] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('dal-planner-terms')
+      if (stored) return new Set(JSON.parse(stored))
+    } catch (_e) { }
+    return new Set()
+  })
 
   // ── Workspace state ──────────────────────────────────────────
   //
@@ -93,6 +105,11 @@ function App() {
   useEffect(() => {
     localStorage.setItem('dal-planner-workspaces', JSON.stringify(appState))
   }, [appState])
+
+  // Persist selected terms to localStorage
+  useEffect(() => {
+    localStorage.setItem('dal-planner-terms', JSON.stringify(Array.from(termFilter)))
+  }, [termFilter])
 
   // ── Workspace helpers ────────────────────────────────────────
 
@@ -232,6 +249,14 @@ function App() {
         return (a.ROW_NUMBER || 0) - (b.ROW_NUMBER || 0)
       })
       setClasses(allClasses)
+
+      // Fetch the last-updated timestamp from the metadata table
+      const { data: meta } = await supabase
+        .from('metadata')
+        .select('value')
+        .eq('key', 'last_updated')
+        .single()
+      if (meta?.value) setLastRefreshed(meta.value)
 
       // Prune selected classes that aren't in the new roster
       setSelectedClasses(prev => {
@@ -399,6 +424,11 @@ function App() {
 
   // ── Render ─────────────────────────────────────────────────
 
+  const dismissBanner = useCallback(() => {
+    setBannerDismissed(true)
+    localStorage.setItem('dal-planner-banner-dismissed', '1')
+  }, [])
+
   return (
     <div className="app-container">
       {/* AppHeader is memoized and only re-renders when its scalar props change */}
@@ -414,6 +444,18 @@ function App() {
         conflictCount={conflicts.size}
         missingLinkCount={missingLinks.size}
       />
+
+      {/* Disclaimer banner — dismissable, persisted to localStorage */}
+      {!bannerDismissed && (
+        <div className="disclaimer-banner">
+          <span>
+            This is an unofficial, student-built tool. It is not affiliated with, endorsed by, or
+            operated by Dalhousie University. Always confirm your schedule through Dal's official
+            registration system.
+          </span>
+          <button className="disclaimer-dismiss" onClick={dismissBanner} aria-label="Dismiss">&times;</button>
+        </div>
+      )}
 
       {/* If Supabase env vars are missing, show a setup guide instead of the app */}
       {envError ? (
@@ -440,6 +482,7 @@ function App() {
               setActiveTab={setActiveTab}
               termFilter={termFilter}
               toggleTerm={toggleTerm}
+              lastRefreshed={lastRefreshed}
             />
           )}
           {activeTab === 'schedule' && (
@@ -454,6 +497,19 @@ function App() {
           )}
         </>
       )}
+
+      {/* Site footer — persistent on every page */}
+      <footer className="site-footer">
+        <span>
+          DAL Planner is not affiliated with Dalhousie University. Course data may not be current.
+          For official course information, visit{' '}
+          <a href="https://www.dal.ca" target="_blank" rel="noopener noreferrer">dal.ca</a>.
+        </span>
+        <button className="footer-about-link" onClick={() => setShowAbout(true)}>About</button>
+      </footer>
+
+      {/* About modal */}
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
     </div>
   )
 }

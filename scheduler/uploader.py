@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from supabase import create_client
 
 from scheduler.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
@@ -5,6 +7,7 @@ from scheduler.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 BATCH_SIZE = 500
 TABLE = "dalhousie_classes"
 RESTRICTIONS_TABLE = "class_restrictions"
+METADATA_TABLE = "metadata"
 
 
 async def upload(rows: list[dict]) -> int:
@@ -26,7 +29,10 @@ async def upload(rows: list[dict]) -> int:
         client.table(TABLE).insert(batch).execute()
         print(f"  Inserted rows {i}–{i + len(batch) - 1}")
 
-    print(f"Upload complete. {len(normalized)} rows inserted.")
+    # Update the metadata table with the current UTC timestamp
+    now = datetime.now(timezone.utc).isoformat()
+    client.table(METADATA_TABLE).upsert({"key": "last_updated", "value": now}).execute()
+    print(f"Upload complete. {len(normalized)} rows inserted. Metadata updated at {now}.")
     return len(normalized)
 
 

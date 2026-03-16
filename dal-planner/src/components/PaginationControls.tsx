@@ -15,6 +15,7 @@ type Props = {
   totalCount: number                          // total filtered results (not total rows in DB)
   onPageChange: (page: number) => void
   onRowsPerPageChange: (rows: number) => void
+  lastRefreshed?: string | null
 }
 
 const PaginationControls = React.memo(function PaginationControls({
@@ -23,6 +24,7 @@ const PaginationControls = React.memo(function PaginationControls({
   totalCount,
   onPageChange,
   onRowsPerPageChange,
+  lastRefreshed,
 }: Props) {
   const totalPages = Math.ceil(totalCount / rowsPerPage)
   // Clamp start to 1 when totalCount is 0 to avoid displaying "0 – 0 of 0"
@@ -33,6 +35,11 @@ const PaginationControls = React.memo(function PaginationControls({
     <div className="pagination-controls">
       <div className="pagination-info">
         Showing {start} – {end} of {totalCount} results
+        {lastRefreshed && (
+          <span className="last-refreshed">
+            Data last updated: {new Date(lastRefreshed).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+          </span>
+        )}
       </div>
       <div className="pagination-actions">
         <div className="rows-per-page">
