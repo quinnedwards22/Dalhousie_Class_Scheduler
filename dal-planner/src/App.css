@@ -48,39 +48,51 @@
   display: flex;
   align-items: center;
   margin-left: 24px;
-  background: #F8FAFC;
-  border: 1px solid #DCE3EA;
-  border-radius: 6px;
-  height: 32px;
-  padding: 0 4px;
+  background: linear-gradient(135deg, #F8FAFC, #EDF4E9);
+  border: 1px solid #c2d5b8;
+  border-radius: 8px;
+  height: 34px;
+  padding: 0 4px 0 10px;
+  box-shadow: 0 1px 3px rgba(92, 134, 76, 0.08);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.workspace-selector:hover {
+  border-color: #5C864C;
+  box-shadow: 0 2px 6px rgba(92, 134, 76, 0.15);
 }
 
 .workspace-selector select {
   background: transparent;
   border: none;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 600;
-  color: #1F2937;
-  padding: 0 8px;
+  color: #374151;
+  padding: 0 8px 0 0;
   outline: none;
   cursor: pointer;
+  letter-spacing: -0.01em;
 }
 
 .workspace-delete {
   background: transparent;
   border: none;
   color: #9CA3AF;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   cursor: pointer;
   padding: 0 6px;
   display: flex;
   align-items: center;
-  border-left: 1px solid #DCE3EA;
+  justify-content: center;
+  border-left: 1px solid #c2d5b8;
   height: 20px;
+  border-radius: 0 4px 4px 0;
+  transition: color 0.15s, background 0.15s;
 }
 
 .workspace-delete:hover {
   color: #dc2626;
+  background: rgba(220, 38, 38, 0.06);
 }
 
 .header-spacer {
@@ -172,6 +184,47 @@
 
 .header-tab:not(.active) .tab-badge {
   background: #9CA3AF;
+}
+
+.schedule-tab-wrapper {
+  position: relative;
+  display: flex;
+}
+
+.schedule-hint-popup {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%) translateX(12px);
+  background: #1F2937;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 100;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.schedule-hint-popup::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 100%;
+  transform: translateY(-50%);
+  border-width: 5px;
+  border-style: solid;
+  border-color: transparent #1F2937 transparent transparent;
+}
+
+.schedule-tab-wrapper:hover .schedule-hint-popup,
+.schedule-hint-popup.visible {
+  opacity: 1;
+  transform: translateY(-50%) translateX(8px);
 }
 
 /* ── Tab Content ───────────────────────────────────── */
@@ -1525,4 +1578,77 @@
   margin: 4px 0 0;
   padding: 0 12px;
   line-height: 1.4;
+}
+
+/* ── Export Button & Dropdown ─────────────────────────── */
+.schedule-stats-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.export-menu-wrapper {
+  position: relative;
+}
+
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: #fff;
+  background: #5C864C;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+
+.export-btn:hover {
+  background: #496E3C;
+  box-shadow: 0 2px 6px rgba(73, 110, 60, 0.25);
+}
+
+.export-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 170px;
+  background: #fff;
+  border: 1px solid #DCE3EA;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  padding: 4px 0;
+  animation: dropdown-fade 0.12s ease-out;
+}
+
+@keyframes dropdown-fade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.export-dropdown button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 14px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: #1F2937;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.export-dropdown button:hover {
+  background: #F3F7F2;
+  color: #496E3C;
 }

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Calendar Body -->
+  <rect x="15" y="25" width="70" height="60" rx="10" fill="#14213d"/>
+  
+  <!-- Calendar Header -->
+  <path d="M15 35 Q 15 25 25 25 L 75 25 Q 85 25 85 35 L 85 45 L 15 45 Z" fill="#fca311"/>
+  
+  <!-- Binder Rings -->
+  <rect x="30" y="15" width="8" height="20" rx="4" fill="#ffffff" />
+  <rect x="62" y="15" width="8" height="20" rx="4" fill="#ffffff" />
+  
+  <!-- Inner Data lines / squares -->
+  <rect x="25" y="55" width="12" height="10" rx="2" fill="#ffffff" opacity="0.8"/>
+  <rect x="44" y="55" width="12" height="10" rx="2" fill="#ffffff" opacity="0.8"/>
+  <rect x="63" y="55" width="12" height="10" rx="2" fill="#ffffff" opacity="0.8"/>
+  
+  <rect x="25" y="70" width="12" height="10" rx="2" fill="#ffffff" opacity="0.8"/>
+  <rect x="44" y="70" width="12" height="10" rx="2" fill="#fca311"/> 
+  <rect x="63" y="70" width="12" height="10" rx="2" fill="#ffffff" opacity="0.8"/>
+</svg>

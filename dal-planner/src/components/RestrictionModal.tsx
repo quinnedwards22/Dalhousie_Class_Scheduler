@@ -1,13 +1,21 @@
+import type { CourseSection } from '../types'
+
+export type RestrictionData = {
+  restr_ind: string
+  restr_type: string
+  restr_descr: string
+}
+
 type RestrictionModalProps = {
-  cls: any
-  data: any[] | null
+  cls: CourseSection
+  data: RestrictionData[] | null
   loading: boolean
   onClose: () => void
 }
 
 function RestrictionModal({ cls, data, loading, onClose }: RestrictionModalProps) {
-  const includeRows = (data ?? []).filter((r: any) => r.restr_ind === 'I')
-  const excludeRows = (data ?? []).filter((r: any) => r.restr_ind === 'E')
+  const includeRows = (data ?? []).filter((r: RestrictionData) => r.restr_ind === 'I')
+  const excludeRows = (data ?? []).filter((r: RestrictionData) => r.restr_ind === 'E')
 
   return (
     <div className="restr-overlay" onClick={onClose}>
@@ -49,7 +57,7 @@ function RestrictionModal({ cls, data, loading, onClose }: RestrictionModalProps
             {includeRows.length > 0 && (
               <div className="restr-section">
                 <p className="restr-section-title"><strong>Restricted to students in:</strong></p>
-                {includeRows.map((r: any, i: number) => (
+                {includeRows.map((r: RestrictionData, i: number) => (
                   <p key={`i-${i}`} className="restr-row"><strong>{r.restr_type}:</strong> {r.restr_descr}</p>
                 ))}
               </div>
@@ -57,7 +65,7 @@ function RestrictionModal({ cls, data, loading, onClose }: RestrictionModalProps
             {excludeRows.length > 0 && (
               <div className="restr-section">
                 <p className="restr-section-title"><strong>Not open to students in:</strong></p>
-                {excludeRows.map((r: any, i: number) => (
+                {excludeRows.map((r: RestrictionData, i: number) => (
                   <p key={`e-${i}`} className="restr-row"><strong>{r.restr_type}:</strong> {r.restr_descr}</p>
                 ))}
               </div>

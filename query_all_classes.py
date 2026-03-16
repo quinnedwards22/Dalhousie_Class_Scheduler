@@ -237,8 +237,9 @@ def main():
         time.sleep(args.delay)
 
     if not all_rows:
-        print("No data collected.")
-        return
+        import sys
+        print("No data collected. Warning: The scraper returned 0 rows! Dalhousie may have rate-limited or blocked this IP.")
+        sys.exit(1)
 
     all_rows = dedupe_rows(all_rows)
     json_path, csv_path = write_outputs(all_rows, args.output_prefix)

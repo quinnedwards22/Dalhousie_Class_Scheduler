@@ -6,23 +6,17 @@ import AppHeader from './components/AppHeader'
 import BrowseTab from './components/BrowseTab'
 import ScheduleTab from './components/ScheduleTab'
 import AboutModal from './components/AboutModal'
-
-// ── Types ──────────────────────────────────────────────────────
-
-type Workspace = { id: string; name: string; classes: any[] }
-
-// AppState holds all workspaces and tracks which one is active.
-// This entire object is serialised to localStorage on every change.
-type AppState = { activeWorkspaceId: string; workspaces: Workspace[] }
+import type { CourseSection, AppState } from './types'
 
 const defaultState: AppState = {
   activeWorkspaceId: '1',
   workspaces: [{ id: '1', name: 'Plan A', classes: [] }]
 }
 
-// Module-level cache: term_code → normalised class array.
-// Lives for the browser session so toggling terms back doesn't re-fetch.
-const termCache = new Map<string, any[]>()
+// Module-level cache: term_code → normalised class array + fetch timestamp.
+// Entries older than CACHE_TTL_MS are treated as stale and re-fetched.
+const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+const termCache = new Map<string, { data: CourseSection[]; fetchedAt: number }>()
 
 // ── App ────────────────────────────────────────────────────────
 //
@@ -36,15 +30,13 @@ const termCache = new Map<string, any[]>()
 // in the child tab components to keep re-renders isolated.
 
 function App() {
-  const [classes, setClasses] = useState<any[]>([])   // full class roster for the selected term(s)
+  const [classes, setClasses] = useState<CourseSection[]>([])   // full class roster for the selected term(s)
   const [loading, setLoading] = useState(true)
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'browse' | 'schedule'>('browse')
   const [envError, setEnvError] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
-  const [bannerDismissed, setBannerDismissed] = useState(
-    () => localStorage.getItem('dal-planner-banner-dismissed') === '1'
-  )
+  const [fetchError, setFetchError] = useState(false)
 
   // termFilter drives the Supabase query; changing it triggers a re-fetch.
   // Restored from localStorage; defaults to empty (no terms selected).
@@ -90,7 +82,7 @@ function App() {
 
   // Update only the active workspace's class list without touching other workspaces.
   // Accepts either a new array or an updater function (same API as useState).
-  const setSelectedClasses = useCallback((updater: any[] | ((prev: any[]) => any[])) => {
+  const setSelectedClasses = useCallback((updater: CourseSection[] | ((prev: CourseSection[]) => CourseSection[])) => {
     setAppState(prev => {
       const active = prev.workspaces.find(w => w.id === prev.activeWorkspaceId) || prev.workspaces[0]
       const nextClasses = typeof updater === 'function' ? updater(active.classes) : updater
@@ -151,7 +143,7 @@ function App() {
   }, [])
 
   // Add a class to the active workspace if not already present; remove it if it is.
-  const toggleClassSelection = useCallback((cls: any) => {
+  const toggleClassSelection = useCallback((cls: CourseSection) => {
     setSelectedClasses(prev => {
       const isSelected = prev.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
       if (isSelected) return prev.filter(c => !(c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB))
@@ -187,9 +179,14 @@ function App() {
       }
 
       setLoading(true)
+      setFetchError(false)
 
       const terms = Array.from(termFilter)
-      const uncached = terms.filter(t => !termCache.has(t))
+      const now = Date.now()
+      const uncached = terms.filter(t => {
+        const entry = termCache.get(t)
+        return !entry || (now - entry.fetchedAt > CACHE_TTL_MS)
+      })
 
       if (uncached.length > 0) {
         // PostgREST enforces a server-side max_rows=1000 cap that .range() alone
@@ -201,6 +198,7 @@ function App() {
           uncached.map(async term => {
             const rows: any[] = []
             let from = 0
+            let hasError = false
             while (true) {
               const { data, error } = await supabase
                 .from('dalhousie_classes')
@@ -219,6 +217,8 @@ function App() {
 
               if (error || !data) {
                 console.error('Error fetching classes for term', term, error)
+                setFetchError(true)
+                hasError = true
                 break
               }
               rows.push(...data)
@@ -226,19 +226,21 @@ function App() {
               from += PAGE_SIZE
             }
 
+            if (hasError) return // Break out to avoid caching bad data
+
             if (rows.length > 0) {
               const upper = rows.map((c: any) => {
-                const u: any = {}
+                const u: Record<string, unknown> = {}
                 for (const key in c) u[key.toUpperCase()] = c[key]
-                return u
+                return u as unknown as CourseSection
               })
-              termCache.set(term, upper)
+              termCache.set(term, { data: upper, fetchedAt: Date.now() })
             }
           })
         )
       }
 
-      const allClasses = terms.flatMap(t => termCache.get(t) ?? [])
+      const allClasses = terms.flatMap(t => termCache.get(t)?.data ?? [])
       allClasses.sort((a, b) => {
         const subj = (a.SUBJ_CODE || '').localeCompare(b.SUBJ_CODE || '')
         if (subj !== 0) return subj
@@ -261,8 +263,8 @@ function App() {
       // Prune selected classes that aren't in the new roster
       setSelectedClasses(prev => {
         if (prev.length === 0) return prev
-        const crnSet = new Set(allClasses.map((c: any) => `${c.CRN}-${c.SEQ_NUMB}`))
-        const valid = prev.filter((c: any) => crnSet.has(`${c.CRN}-${c.SEQ_NUMB}`))
+        const crnSet = new Set(allClasses.map((c: CourseSection) => `${c.CRN}-${c.SEQ_NUMB}`))
+        const valid = prev.filter((c: CourseSection) => crnSet.has(`${c.CRN}-${c.SEQ_NUMB}`))
         return valid.length === prev.length ? prev : valid
       })
 
@@ -295,7 +297,7 @@ function App() {
         const endMin = timeToMinutes(times.end)
         // Each time slot applies to whichever days the section meets at that index
         dayKeys.forEach(dayKey => {
-          const dayVals = splitByBr(cls[dayKey])
+          const dayVals = splitByBr(cls[dayKey as keyof CourseSection] as string)
           if (dayVals[idx]?.trim()) {
             slots.push({ day: dayKey, start: startMin, end: endMin })
           }
@@ -382,7 +384,7 @@ function App() {
     const missing = new Map<string, string[]>()
 
     // Index selected classes by course for efficient companion lookup
-    const selectedByCourse = new Map<string, any[]>()
+    const selectedByCourse = new Map<string, CourseSection[]>()
     selectedClasses.forEach(cls => {
       const key = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}`
       if (!selectedByCourse.has(key)) selectedByCourse.set(key, [])
@@ -424,11 +426,6 @@ function App() {
 
   // ── Render ─────────────────────────────────────────────────
 
-  const dismissBanner = useCallback(() => {
-    setBannerDismissed(true)
-    localStorage.setItem('dal-planner-banner-dismissed', '1')
-  }, [])
-
   return (
     <div className="app-container">
       {/* AppHeader is memoized and only re-renders when its scalar props change */}
@@ -445,17 +442,14 @@ function App() {
         missingLinkCount={missingLinks.size}
       />
 
-      {/* Disclaimer banner — dismissable, persisted to localStorage */}
-      {!bannerDismissed && (
-        <div className="disclaimer-banner">
-          <span>
-            This is an unofficial, student-built tool. It is not affiliated with, endorsed by, or
-            operated by Dalhousie University. Always confirm your schedule through Dal's official
-            registration system.
-          </span>
-          <button className="disclaimer-dismiss" onClick={dismissBanner} aria-label="Dismiss">&times;</button>
-        </div>
-      )}
+      {/* Disclaimer banner — persistent on every page */}
+      <div className="disclaimer-banner">
+        <span>
+          This is an unofficial, student-built tool. It is not affiliated with, endorsed by, or
+          operated by Dalhousie University. Always confirm your schedule through Dal's official
+          registration system.
+        </span>
+      </div>
 
       {/* If Supabase env vars are missing, show a setup guide instead of the app */}
       {envError ? (
@@ -473,6 +467,7 @@ function App() {
             <BrowseTab
               classes={classes}
               loading={loading}
+              fetchError={fetchError}
               selectedClasses={selectedClasses}
               conflicts={conflicts}
               incompatibleLinks={incompatibleLinks}
@@ -501,7 +496,7 @@ function App() {
       {/* Site footer — persistent on every page */}
       <footer className="site-footer">
         <span>
-          DAL Planner is not affiliated with Dalhousie University. Course data may not be current.
+          Not affiliated with Dalhousie University. For planning purposes only. Course data may not be current.
           For official course information, visit{' '}
           <a href="https://www.dal.ca" target="_blank" rel="noopener noreferrer">dal.ca</a>.
         </span>

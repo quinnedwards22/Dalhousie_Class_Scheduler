@@ -15,6 +15,7 @@
 //   Mini-preview bar (sticky, visible when ≥1 class selected)
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import type { CourseSection } from '../types'
 import { splitByBr, DAY_LETTER_TO_KEY } from '../utils/classUtils'
 import { supabase } from '../utils/supabase'
 import ClassRow from './ClassRow'
@@ -22,14 +23,15 @@ import PaginationControls from './PaginationControls'
 import RestrictionModal from './RestrictionModal'
 
 type BrowseTabProps = {
-  classes: any[]                        // full roster for the selected term(s)
+  classes: CourseSection[]                        // full roster for the selected term(s)
   loading: boolean
-  selectedClasses: any[]                // active workspace's selections
+  fetchError: boolean                   // true if there was an error fetching data from Supabase
+  selectedClasses: CourseSection[]                // active workspace's selections
   conflicts: Map<string, string[]>      // CRN-SEQ → list of conflicting section names
   incompatibleLinks: Set<string>        // CRN-SEQ ids that can't be added due to link constraints
   missingLinks: Map<string, string[]>   // CRN-SEQ → unsatisfied link token strings
   totalCredits: number
-  toggleClassSelection: (cls: any) => void
+  toggleClassSelection: (cls: CourseSection) => void
   setActiveTab: (tab: 'browse' | 'schedule') => void
   termFilter: Set<string>               // lives in App because changing it triggers a fetch
   toggleTerm: (term: string) => void
@@ -39,6 +41,7 @@ type BrowseTabProps = {
 function BrowseTab({
   classes,
   loading,
+  fetchError,
   selectedClasses,
   conflicts,
   incompatibleLinks,
@@ -64,6 +67,14 @@ function BrowseTab({
   }, [])
 
   const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery)
+    }, 150)
+    return () => clearTimeout(handler)
+  }, [searchQuery])
   const [subjectFilter, setSubjectFilter] = useState(savedFilters?.subject ?? '')
   const [typeFilter, setTypeFilter] = useState(savedFilters?.type ?? '')
   const [dayFilter, setDayFilter] = useState<Set<string>>(() => new Set(savedFilters?.days ?? []))
@@ -90,10 +101,10 @@ function BrowseTab({
 
   // Restriction modal state
   const [restrictionModal, setRestrictionModal] = useState<{
-    crn: string; cls: any; data: any[] | null; loading: boolean
+    crn: string; cls: CourseSection; data: any[] | null; loading: boolean
   } | null>(null)
 
-  const showRestrictions = useCallback(async (crn: string, cls: any) => {
+  const showRestrictions = useCallback(async (crn: string, cls: CourseSection) => {
     setRestrictionModal({ crn, cls, data: null, loading: true })
     const { data } = await supabase
       .from('class_restrictions')
@@ -158,8 +169,8 @@ function BrowseTab({
   const filteredClasses = useMemo(() => {
     return classes.filter(cls => {
       // Full-text search across course title, code (e.g. "CSCI 2110"), and CRN
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim()
+      if (debouncedSearchQuery.trim()) {
+        const q = debouncedSearchQuery.toLowerCase().trim()
         const title = (cls.CRSE_TITLE || '').toLowerCase()
         const code = `${cls.SUBJ_CODE || ''} ${cls.CRSE_NUMB || ''}`.toLowerCase()
         const crn = String(cls.CRN || '').toLowerCase()
@@ -174,7 +185,7 @@ function BrowseTab({
         const meetsAnyDay = Array.from(dayFilter).some(d => {
           const key = DAY_LETTER_TO_KEY[d]
           if (!key) return false
-          const vals = splitByBr(cls[key])
+          const vals = splitByBr(cls[key as keyof CourseSection] as string)
           return vals.some((v: string) => v.trim() !== '')
         })
         if (!meetsAnyDay) return false
@@ -205,7 +216,7 @@ function BrowseTab({
 
       return true
     })
-  }, [classes, searchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter, locationFilter, isLocAll])
+  }, [classes, debouncedSearchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter, locationFilter, isLocAll])
 
   // Slice filteredClasses to only the rows for the current page
   const paginatedClasses = useMemo(() => {
@@ -217,7 +228,7 @@ function BrowseTab({
   // Each group gets one header row (course code, title, term info) followed
   // by one ClassRow per section. Groups preserve the order returned by Supabase.
   const groupedClasses = useMemo(() => {
-    const groups: { key: string; code: string; title: string; termInfo: string; equiv: string; sections: any[] }[] = []
+    const groups: { key: string; code: string; title: string; termInfo: string; equiv: string; sections: CourseSection[] }[] = []
     const map = new Map<string, number>()  // course key → index in groups array
     paginatedClasses.forEach(cls => {
       const key = `${cls.SUBJ_CODE || ''}-${cls.CRSE_NUMB || ''}-${cls.TERM_CODE || ''}`
@@ -345,11 +356,11 @@ function BrowseTab({
           </div>
           <button
             className={`filter-toggle ${seatsAvailFilter ? 'active' : ''}`}
-            onClick={() => { setSeatsAvailFilter(v => !v); setCurrentPage(1) }}
+            onClick={() => { setSeatsAvailFilter((v: boolean) => !v); setCurrentPage(1) }}
           >Available Only</button>
           <button
             className={`filter-toggle ${hideCDFilter ? 'active' : ''}`}
-            onClick={() => { setHideCDFilter(v => !v); setCurrentPage(1) }}
+            onClick={() => { setHideCDFilter((v: boolean) => !v); setCurrentPage(1) }}
           >Hide C/D</button>
           {hasActiveFilters && (
             <button className="filter-clear" onClick={clearFilters}>Clear Filters</button>
@@ -364,7 +375,7 @@ function BrowseTab({
           {activeFilterLabels.map((label) => (
             <span key={label} className="active-filter-tag">{label}</span>
           ))}
-          {searchQuery && <span className="active-filter-tag">"{searchQuery}"</span>}
+          {debouncedSearchQuery && <span className="active-filter-tag">"{debouncedSearchQuery}"</span>}
         </div>
       )}
 
@@ -389,7 +400,15 @@ function BrowseTab({
       )}
 
       {/* ── Class table ── */}
-      {loading ? (
+      {fetchError ? (
+        <div className="error-state-container" style={{ padding: '2rem', textAlign: 'center', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', margin: '1rem 0' }}>
+          <h3 style={{ color: '#991B1B', margin: '0 0 10px 0' }}>Data Fetch Error</h3>
+          <p style={{ color: '#7F1D1D', fontSize: '0.9rem', margin: 0 }}>
+            There was a problem communicating with the university class database. 
+            Please check your internet connection and try refreshing the page.
+          </p>
+        </div>
+      ) : loading ? (
         <p className="loading-text">Loading classes…</p>
       ) : classes.length === 0 ? (
         <p className="loading-text">No classes found.</p>
@@ -445,7 +464,7 @@ function BrowseTab({
                         isInvalidLink={incompatibleLinks.has(id)}
                         hasMissingLink={missingLinks.has(id)}
                         missingLinkTokens={missingLinks.get(id)}
-                        searchQuery={searchQuery}
+                        searchQuery={debouncedSearchQuery}
                         onToggle={toggleClassSelection}
                         onShowRestrictions={showRestrictions}
                       />

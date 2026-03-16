@@ -17,6 +17,7 @@ import { ScheduleXCalendar, useCalendarApp } from '@schedule-x/react'
 import { createViewWeek } from '@schedule-x/calendar'
 import { createEventsServicePlugin } from '@schedule-x/events-service'
 import '@schedule-x/theme-default/dist/calendar.css'
+import type { CourseSection } from '../types'
 import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, DAY_CONFIG } from '../utils/classUtils'
 import { exportICS, exportCSV, exportPNG, exportPDF } from '../utils/exportUtils'
 
@@ -63,11 +64,11 @@ class CalendarErrorBoundary extends Component<{ children: ReactNode }, EBState> 
 }
 
 type ScheduleTabProps = {
-  selectedClasses: any[]            // sections in the active workspace
+  selectedClasses: CourseSection[]            // sections in the active workspace
   conflicts: Map<string, string[]>  // used to show the conflict banner
   totalCredits: number
   workspaceName: string
-  toggleClassSelection: (cls: any) => void
+  toggleClassSelection: (cls: CourseSection) => void
   setActiveTab: (tab: 'browse' | 'schedule') => void
 }
 
@@ -107,8 +108,8 @@ function ScheduleTab({
   //   courseColorMap — maps "SUBJ-NUMB" to a "course-N" CSS class
   const { calendarEvents, asyncClasses, minTime, maxTime, hasWeekend, courseColorMap, buildError } = useMemo(() => {
     const defaultResult = {
-      calendarEvents: [] as any[],
-      asyncClasses: [] as any[],
+      calendarEvents: [] as any[], // Event typing relies on ScheduleX internals
+      asyncClasses: [] as CourseSection[],
       minTime: '07:00',
       maxTime: '18:00',
       hasWeekend: false,
@@ -118,7 +119,7 @@ function ScheduleTab({
     try {
 
       const evs: any[] = []
-      const asyncCls: any[] = []
+      const asyncCls: CourseSection[] = []
       let earliest = 480   // 8:00 AM default lower bound (minutes since midnight)
       let latest = 1020    // 17:00 default upper bound
       let weekend = false

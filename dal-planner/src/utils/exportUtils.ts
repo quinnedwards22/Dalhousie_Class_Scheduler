@@ -3,6 +3,7 @@
 // No React imports — safe to use anywhere.
 
 import { splitByBr, parseTimes } from './classUtils'
+import type { CourseSection } from '../types'
 
 // ── Term date lookup ──────────────────────────────────────────
 // Maps Dalhousie term codes to their actual start/end dates.
@@ -103,7 +104,7 @@ function triggerDownload(content: string | Blob, filename: string, mimeType?: st
  * unique (section × time-slot group), with weekly RRULE recurrence
  * through the semester.
  */
-export function exportICS(selectedClasses: any[], workspaceName: string) {
+export function exportICS(selectedClasses: CourseSection[], workspaceName: string) {
   const lines: string[] = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -236,21 +237,22 @@ function csvEscape(val: string | number | undefined | null): string {
 }
 
 /** Derives a human-readable days string like "MWF" from the day columns. */
-function parseDays(cls: any): string {
-  const DAY_LETTERS: [string, string][] = [
+function parseDays(cls: CourseSection): string {
+  const DAY_LETTERS: [keyof CourseSection, string][] = [
     ['MONDAYS', 'M'], ['TUESDAYS', 'T'], ['WEDNESDAYS', 'W'],
     ['THURSDAYS', 'R'], ['FRIDAYS', 'F'], ['SATURDAYS', 'S'], ['SUNDAYS', 'U'],
   ]
   const result: string[] = []
   for (const [col, letter] of DAY_LETTERS) {
-    const vals = splitByBr(cls[col])
+    const vals = splitByBr(cls[col] as string)
     if (vals.some((v: string) => v.trim() !== '')) result.push(letter)
   }
   return result.join('')
 }
 
 /** Formats TIMES from "HHMM-HHMM<br>..." to "HH:MM–HH:MM, ..." */
-function formatTimes(timesStr: string): string {
+function formatTimes(timesStr: string | null | undefined): string {
+  if (!timesStr) return ''
   return splitByBr(timesStr)
     .map((t: string) => {
       const parsed = parseTimes(t)
@@ -264,7 +266,7 @@ function formatTimes(timesStr: string): string {
  * Generates and downloads a .csv file listing all selected classes
  * with their schedule details.
  */
-export function exportCSV(selectedClasses: any[]) {
+export function exportCSV(selectedClasses: CourseSection[]) {
   const rows = [CSV_HEADERS.map(csvEscape).join(',')]
 
   for (const cls of selectedClasses) {

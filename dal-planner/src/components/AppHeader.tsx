@@ -8,7 +8,7 @@
 // Wrapped in React.memo so it only re-renders when its props change —
 // filter or search activity in the browse tab won't cause it to repaint.
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 
 type Workspace = { id: string; name: string; classes: any[] }
 type AppState = { activeWorkspaceId: string; workspaces: Workspace[] }
@@ -38,11 +38,21 @@ const AppHeader = React.memo(function AppHeader({
   conflictCount,
   missingLinkCount,
 }: AppHeaderProps) {
+  const [showHint, setShowHint] = useState(true)
+
+  useEffect(() => {
+    // Hide the automatic hint after 5 seconds
+    const timer = setTimeout(() => setShowHint(false), 5000)
+    // Also hide if they switch tabs
+    if (activeTab === 'schedule') setShowHint(false)
+    return () => clearTimeout(timer)
+  }, [activeTab])
+
   return (
     <header className="app-header">
       <div className="header-title-container">
         <h1>DAL Planner</h1>
-        <span className="dal-badge">2025–26</span>
+        <span className="dal-badge">2026–27</span>
       </div>
 
       {/* Workspace selector — choosing "NEW" triggers workspace creation */}
@@ -75,16 +85,23 @@ const AppHeader = React.memo(function AppHeader({
         >
           Browse Classes
         </button>
-        <button
-          className={`header-tab ${activeTab === 'schedule' ? 'active' : ''}`}
-          onClick={() => setActiveTab('schedule')}
-        >
-          My Schedule
-          {/* Badge shows how many sections are currently selected */}
-          {selectedCount > 0 && (
-            <span className="tab-badge">{selectedCount}</span>
+        <div className="schedule-tab-wrapper">
+          <button
+            className={`header-tab ${activeTab === 'schedule' ? 'active' : ''}`}
+            onClick={() => setActiveTab('schedule')}
+          >
+            My Schedule
+            {/* Badge shows how many sections are currently selected */}
+            {selectedCount > 0 && (
+              <span className="tab-badge">{selectedCount}</span>
+            )}
+          </button>
+          {activeTab === 'browse' && (
+            <div className={`schedule-hint-popup ${showHint ? 'visible' : ''}`}>
+              View & export your weekly timetable
+            </div>
           )}
-        </button>
+        </div>
       </nav>
 
       <div className="header-spacer" />

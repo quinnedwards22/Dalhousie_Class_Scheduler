@@ -12,10 +12,11 @@
 // or link changes, not every visible row.
 
 import React, { useMemo } from 'react'
+import type { CourseSection } from '../types'
 import { splitByBr, rowTypeClass } from '../utils/classUtils'
 
 type ClassRowProps = {
-  cls: any              // raw class object from Supabase (UPPER_CASE keys)
+  cls: CourseSection              // raw class object from Supabase (UPPER_CASE keys)
   isSelected: boolean
   hasConflict: boolean
   conflictList?: string[]       // names of conflicting sections
@@ -23,8 +24,8 @@ type ClassRowProps = {
   hasMissingLink: boolean       // true if this selected section is missing a required companion
   missingLinkTokens?: string[]  // e.g. ["B0", "T0"] — which companion types are still needed
   searchQuery: string           // current search text, used to highlight CRN matches
-  onToggle: (cls: any) => void
-  onShowRestrictions: (crn: string, cls: any) => void
+  onToggle: (cls: CourseSection) => void
+  onShowRestrictions: (crn: string, cls: CourseSection) => void
 }
 
 /**
