@@ -483,7 +483,7 @@ function BrowseTab({
                           </td>
                         )}
                         <td className="course-name-cell">
-                          {sc.CRSE_TITLE}
+                          <span className="course-name-text">{sc.CRSE_TITLE}</span>
                           {conflicts.has(`${sc.CRN}-${sc.SEQ_NUMB}`) && (
                             <span className="row-status-badge badge-conflict">conflict</span>
                           )}
