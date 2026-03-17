@@ -245,6 +245,8 @@ function App() {
       for (let j = i + 1; j < classSlots.length; j++) {
         const a = classSlots[i]
         const b = classSlots[j]
+        // Courses in different semesters can never conflict
+        if (a.cls.TERM_CODE !== b.cls.TERM_CODE) continue
         for (const slotA of a.slots) {
           for (const slotB of b.slots) {
             if (slotA.day === slotB.day && slotA.start < slotB.end && slotB.start < slotA.end) {
@@ -260,6 +262,18 @@ function App() {
       }
     }
     return conflictMap
+  }, [selectedClasses])
+
+  // Detect courses where 2+ sections of the same type (e.g. two LEC sections) are selected
+  const duplicateCourses = useMemo(() => {
+    const counts = new Map<string, number>()
+    selectedClasses.forEach(cls => {
+      const key = `${cls.SUBJ_CODE} ${cls.CRSE_NUMB} ${cls.SCHD_TYPE || 'Lec'}`
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    })
+    const dupes = new Set<string>()
+    counts.forEach((count, key) => { if (count > 1) dupes.add(key) })
+    return dupes
   }, [selectedClasses])
 
   const incompatibleLinks = useMemo(() => {
@@ -375,6 +389,7 @@ function App() {
               fetchError={fetchError}
               selectedClasses={selectedClasses}
               conflicts={conflicts}
+              duplicateCourses={duplicateCourses}
               incompatibleLinks={incompatibleLinks}
               missingLinks={missingLinks}
               totalCredits={totalCredits}
@@ -389,6 +404,8 @@ function App() {
             <ScheduleTab
               selectedClasses={selectedClasses}
               conflicts={conflicts}
+              duplicateCourses={duplicateCourses}
+              missingLinks={missingLinks}
               totalCredits={totalCredits}
               toggleClassSelection={toggleClassSelection}
               setActiveTab={setActiveTab}

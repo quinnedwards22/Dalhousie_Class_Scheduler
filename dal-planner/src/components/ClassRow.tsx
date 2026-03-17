@@ -23,6 +23,7 @@ type ClassRowProps = {
   isInvalidLink: boolean        // true if adding this section would break a link constraint
   hasMissingLink: boolean       // true if this selected section is missing a required companion
   missingLinkTokens?: string[]  // e.g. ["B0", "T0"] — which companion types are still needed
+  isDuplicate: boolean          // true when 2+ sections of same SUBJ+CRSE+SCHD_TYPE are selected
   searchQuery: string           // current search text, used to highlight CRN matches
   onToggle: (cls: CourseSection) => void
   onShowRestrictions: (crn: string, cls: CourseSection) => void
@@ -56,6 +57,7 @@ const ClassRow = React.memo(function ClassRow({
   isInvalidLink,
   hasMissingLink,
   missingLinkTokens,
+  isDuplicate,
   searchQuery,
   onToggle,
   onShowRestrictions,
@@ -81,6 +83,7 @@ const ClassRow = React.memo(function ClassRow({
     isSelected ? 'row-selected' : '',
     rowTypeClass(cls.SCHD_TYPE),               // row-lec or row-lab based on type
     hasConflict ? 'row-conflict' : '',
+    isDuplicate ? 'row-duplicate' : '',
     cls.TIMES === 'C/D' ? 'row-dimmed' : '',   // C/D = "course/department" — no set schedule
     isInvalidLink ? 'row-incompatible' : '',
     noteBottom ? 'row-has-note' : '',
@@ -196,6 +199,16 @@ const ClassRow = React.memo(function ClassRow({
           <td className="cell-note"></td>
           <td colSpan={15} className="conflict-detail-text" style={{ color: '#854d0e' }}>
             Requires a linked section: {missingLinkTokens?.join(', ')}
+          </td>
+        </tr>
+      )}
+
+      {/* ── Duplicate warning row — only for selected sections ── */}
+      {isDuplicate && (
+        <tr className="row-conflict-detail" style={{ backgroundColor: '#fef08a' }}>
+          <td className="cell-note"></td>
+          <td colSpan={15} className="conflict-detail-text" style={{ color: '#854d0e' }}>
+            Multiple {cls.SCHD_TYPE || 'Lecture'} sections of {cls.SUBJ_CODE} {cls.CRSE_NUMB} selected.
           </td>
         </tr>
       )}

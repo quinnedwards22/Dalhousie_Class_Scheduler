@@ -237,8 +237,7 @@
 
 /* ── Browse Tab ────────────────────────────────────── */
 .browse-tab {
-  padding: 16px 24px;
-  padding-bottom: 0;
+  padding: 16px 24px 0;
   overflow-y: auto;
   position: relative;
 }
@@ -421,6 +420,432 @@
 
 .mini-preview-cta:hover {
   background: #5C864C;
+}
+
+/* ── Browse Top Layout ─────────────────────────────── */
+.browse-top-layout {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.browse-left-panel {
+  flex: 2;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Remove bottom margins from children since gap handles spacing */
+.browse-left-panel .toolbar-top-filters,
+.browse-left-panel .toolbar,
+.browse-left-panel .active-filters-bar {
+  margin-bottom: 0;
+}
+
+.browse-right-panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.browse-right-panel .selected-classes-panel {
+  margin-bottom: 0;
+  position: sticky;
+  top: 0;
+}
+
+/* ── Selected Classes Panel ────────────────────────── */
+.selected-classes-panel {
+  background: #f2f8ef;
+  border: 1px solid #c2d5b8;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 4px rgba(92, 134, 76, 0.10);
+}
+
+.selected-panel-header {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 10px;
+}
+
+.selected-panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-hint-text {
+  font-size: 0.65rem;
+  color: #9CA3AF;
+  font-style: italic;
+  margin-top: 3px;
+  display: block;
+}
+
+.selected-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #1F2937;
+}
+
+.selected-panel-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: #5C864C;
+  color: #fff;
+}
+
+.copy-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: #496E3C;
+  background: #EDF4E9;
+  border: 1px solid #5C864C;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.copy-all-btn:hover {
+  background: #dcefd5;
+}
+
+.copy-all-btn.copied {
+  color: #fff;
+  background: #5C864C;
+  border-color: #496E3C;
+}
+
+.selected-panel-table-wrapper {
+  overflow-x: auto;
+  border-radius: 6px;
+  border: 1px solid #c2d5b8;
+}
+
+.selected-panel-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.selected-panel-table th {
+  background: #e8f3e3;
+  font-weight: 600;
+  font-size: 0.68rem;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+  border-bottom: 1px solid #E8EDF2;
+  text-align: left;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.selected-panel-table th.th-name {
+  width: 100%;
+}
+
+.selected-panel-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #F1F5F9;
+  color: #1F2937;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.selected-panel-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.panel-empty-cell {
+  text-align: center;
+  color: #9CA3AF;
+  font-size: 0.78rem;
+  font-style: italic;
+  padding: 14px 10px !important;
+}
+
+.selected-panel-table tbody tr:hover td {
+  background: #F8FAFC;
+}
+
+.selected-panel-table td.course-name-cell {
+  white-space: normal;
+  color: #374151;
+  font-weight: 500;
+}
+
+/* ── Per-row status badge pills (selected-classes panels) ── */
+.row-status-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: 9999px;
+  vertical-align: middle;
+  line-height: 1.6;
+}
+
+.badge-conflict {
+  background-color: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.badge-duplicate {
+  background-color: #fefce8;
+  color: #854d0e;
+  border: 1px solid #fde047;
+}
+
+.badge-missing-link {
+  background-color: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+/* ── Floating mini selected-classes panel (BrowseTab) ── */
+.floating-selected-panel {
+  position: fixed;
+  top: 112px;
+  right: 24px;
+  width: 480px;
+  z-index: 200;
+  background: #f2f8ef;
+  border: 1px solid #c2d5b8;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(92, 134, 76, 0.12);
+}
+
+.floating-panel-header {
+  display: flex;
+  align-items: center;
+  padding: 9px 14px 8px;
+  border-bottom: 1px solid #c2d5b8;
+  background: #e8f3e3;
+}
+
+.floating-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #1F2937;
+}
+
+.floating-panel-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.79rem;
+}
+
+.floating-panel-table thead th {
+  background: #e8f3e3;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6B7280;
+  padding: 5px 10px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid #d1e8c8;
+}
+
+.floating-panel-table tbody tr {
+  border-top: 1px solid #e2eed9;
+}
+
+.floating-panel-table tbody tr:first-child {
+  border-top: none;
+}
+
+.floating-panel-table td {
+  padding: 6px 10px;
+  vertical-align: middle;
+  white-space: nowrap;
+  color: #1F2937;
+}
+
+.fp-crn {
+  color: #6B7280;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+}
+
+.fp-course {
+  font-weight: 600;
+}
+
+.fp-sec {
+  color: #6B7280;
+}
+
+.fp-term {
+  color: #9CA3AF;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.fp-badges {
+  width: 100%;
+}
+
+/* Type pill — colours match main table row backgrounds (row-lec/lab/tut) */
+.fp-type {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+/* LEC: white row in main table → subtle grey outline */
+.fp-type-lec { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+/* LAB: #FFFBEB row in main table */
+.fp-type-lab { background: #FFFBEB; color: #92400e; border-color: #fcd34d; }
+/* TUT: #F0F7FF row in main table */
+.fp-type-tut { background: #F0F7FF; color: #1e40af; border-color: #bfdbfe; }
+/* fallback */
+.fp-type { background: #f1f5f9; color: #475569; border-color: #e2e8f0; }
+
+/* ── Semester view segmented control (ScheduleTab) ── */
+.semester-tabs {
+  display: flex;
+  gap: 0;
+  margin: 0.75rem 0 0.5rem;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 3px;
+  width: fit-content;
+  border: 1px solid #e2e8f0;
+}
+
+.semester-tab-btn {
+  padding: 5px 18px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  color: #64748b;
+  transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+  white-space: nowrap;
+}
+
+.semester-tab-btn.active {
+  background: #ffffff;
+  color: #1e293b;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0,0,0,0.04);
+}
+
+.semester-tab-btn:hover:not(.active) {
+  background: #e8edf3;
+  color: #334155;
+}
+
+.panel-row-clickable {
+  cursor: pointer;
+}
+
+.panel-row-copied td {
+  background-color: #f0fdf4 !important;
+  transition: background-color 0.2s;
+}
+
+.crn-cell-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.crn-value {
+  font-weight: 600;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.8rem;
+  color: #1F2937;
+  letter-spacing: 0.02em;
+}
+
+.crn-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: #9CA3AF;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+}
+
+.crn-copy-btn:hover {
+  background: #E2EAF4;
+  color: #374151;
+  border-color: #DCE3EA;
+}
+
+.crn-copy-btn.copied {
+  color: #5C864C;
+  background: transparent;
+  border-color: transparent;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.panel-remove-btn {
+  background: none;
+  border: none;
+  color: #9CA3AF;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.panel-remove-btn:hover {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.08);
 }
 
 /* ── Toolbar ──────────────────────────────────────── */
@@ -1061,6 +1486,17 @@
   font-weight: 600;
 }
 
+.duplicate-banner {
+  padding: 10px 16px;
+  margin-bottom: 14px;
+  background: #fefce8;
+  border: 1px solid #fde047;
+  border-radius: 10px;
+  color: #854d0e;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .loading-text {
   text-align: center;
   padding: 48px 0;
@@ -1275,6 +1711,20 @@
 
 .data-table tbody tr.row-conflict td {
   border-bottom: 1px dashed #fecaca;
+}
+
+/* ── Duplicate Row ─────────────────────────────────── */
+.data-table tbody tr.row-duplicate {
+  background-color: #fefce8 !important;
+  box-shadow: inset 3px 0 0 #eab308;
+}
+
+.data-table tbody tr.row-duplicate:hover {
+  background-color: #fef9c3 !important;
+}
+
+.data-table tbody tr.row-duplicate td {
+  border-bottom: 1px dashed #fde047;
 }
 
 /* ── Pagination Controls ───────────────────────────── */

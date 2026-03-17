@@ -80,6 +80,40 @@ export const getLinkGroupNum = (linkStr: string | null | undefined): string | nu
 }
 
 /**
+ * Converts a Dalhousie TERM_CODE (e.g. "202710") to a short human-readable
+ * label like "Fall 2026/27". The last two digits encode the term type:
+ *   10 = Fall, 20 = Winter, 30 = Summer, 00 = Medicine/Dentistry
+ * The four-digit year prefix is the academic year's end year (e.g. 2027
+ * for the 2026/27 academic year). Fall and Summer are displayed with
+ * the straddling year range; Winter and Med/Dent use the single year.
+ */
+export const getTermLabel = (termCode: string): string => {
+  if (!termCode || termCode.length < 6) return termCode || ''
+  const yearStr = termCode.substring(0, 4)
+  const suffix = termCode.substring(4)
+  const endYear = parseInt(yearStr, 10)
+  if (isNaN(endYear)) return termCode
+  if (suffix === '10') return `Fall ${endYear - 1}/${String(endYear).slice(2)}`
+  if (suffix === '20') return `Winter ${endYear - 1}/${String(endYear).slice(2)}`
+  if (suffix === '30') return `Summer ${endYear - 1}/${String(endYear).slice(2)}`
+  if (suffix === '00') return `Med/Dent ${endYear - 1}/${String(endYear).slice(2)}`
+  return termCode
+}
+
+/**
+ * Returns a short term name (e.g. "FALL", "WINTER") from a TERM_CODE.
+ * Used in compact contexts like table columns.
+ */
+export const getTermShortName = (termCode: string): string => {
+  if (!termCode) return ''
+  if (termCode.endsWith('10')) return 'FALL'
+  if (termCode.endsWith('20')) return 'WINTER'
+  if (termCode.endsWith('30')) return 'SUMMER'
+  if (termCode.endsWith('00')) return 'MED/DENT'
+  return termCode
+}
+
+/**
  * 8-color palette used to visually distinguish courses on the calendar.
  * Each entry follows Schedule-X's color API: main (event background),
  * container (label background), onContainer (label text).

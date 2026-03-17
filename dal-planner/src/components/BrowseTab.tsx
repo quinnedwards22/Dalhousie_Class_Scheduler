@@ -14,9 +14,17 @@
 //   PaginationControls (bottom)
 //   Mini-preview bar (sticky, visible when ≥1 class selected)
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import type { CourseSection } from '../types'
-import { splitByBr, DAY_LETTER_TO_KEY } from '../utils/classUtils'
+
+// Minimal clipboard icon for the CRN copy button
+const CopyIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="5" y="1" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+    <rect x="1" y="4" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="white"/>
+  </svg>
+)
+import { splitByBr, DAY_LETTER_TO_KEY, getTermLabel, getTermShortName } from '../utils/classUtils'
 import { supabase } from '../utils/supabase'
 import ClassRow from './ClassRow'
 import PaginationControls from './PaginationControls'
@@ -28,6 +36,7 @@ type BrowseTabProps = {
   fetchError: boolean                   // true if there was an error fetching data from Supabase
   selectedClasses: CourseSection[]                // active workspace's selections
   conflicts: Map<string, string[]>      // CRN-SEQ → list of conflicting section names
+  duplicateCourses: Set<string>         // course+type keys where 2+ sections are selected
   incompatibleLinks: Set<string>        // CRN-SEQ ids that can't be added due to link constraints
   missingLinks: Map<string, string[]>   // CRN-SEQ → unsatisfied link token strings
   totalCredits: number
@@ -44,6 +53,7 @@ function BrowseTab({
   fetchError,
   selectedClasses,
   conflicts,
+  duplicateCourses,
   incompatibleLinks,
   missingLinks,
   totalCredits,
@@ -68,6 +78,46 @@ function BrowseTab({
 
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('')
+
+  const uniqueTerms = useMemo(() =>
+    [...new Set(selectedClasses.map(c => c.TERM_CODE).filter(Boolean))] as string[],
+    [selectedClasses]
+  )
+
+  // ── Floating mini panel ───────────────────────────────────────
+  // Shown when the normal selected-classes panel scrolls out of view
+  const selectedPanelRef = useRef<HTMLDivElement>(null)
+  const [showFloating, setShowFloating] = useState(false)
+
+  useEffect(() => {
+    const el = selectedPanelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowFloating(!entry.isIntersecting),
+      { threshold: 0 }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  // ── Copy-to-clipboard feedback state ─────────────────────────
+  const [copiedCrn, setCopiedCrn] = useState<string | null>(null)
+  const [copiedAll, setCopiedAll] = useState(false)
+
+  const copyAllCrns = useCallback(() => {
+    const crns = selectedClasses.map(c => String(c.CRN)).join('\n')
+    navigator.clipboard.writeText(crns).then(() => {
+      setCopiedAll(true)
+      setTimeout(() => setCopiedAll(false), 1800)
+    })
+  }, [selectedClasses])
+
+  const copySingleCrn = useCallback((crn: string) => {
+    navigator.clipboard.writeText(crn).then(() => {
+      setCopiedCrn(crn)
+      setTimeout(() => setCopiedCrn(null), 1800)
+    })
+  }, [])
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -235,18 +285,8 @@ function BrowseTab({
       if (!map.has(key)) {
         map.set(key, groups.length)
         const ptrm = cls.PTRM_CODE ? `(${cls.PTRM_CODE})` : ''
-        const term = cls.TERM_CODE ? `(${cls.TERM_CODE})` : ''
-
-        let termName = ''
-        if (cls.TERM_CODE) {
-          if (cls.TERM_CODE.endsWith('00')) termName = 'MEDICINE/DENTISTRY'
-          else if (cls.TERM_CODE.endsWith('10')) termName = 'FALL'
-          else if (cls.TERM_CODE.endsWith('20')) termName = 'WINTER'
-          else if (cls.TERM_CODE.endsWith('30')) termName = 'SUMMER'
-        }
-
+        const termLabelPart = [cls.TERM_CODE ? `(${cls.TERM_CODE})` : '', getTermLabel(cls.TERM_CODE || ''), ptrm].filter(Boolean).join(' ')
         const dates = cls.START_DATE && cls.END_DATE ? `${cls.START_DATE} - ${cls.END_DATE}` : ''
-        const termLabelPart = [term, termName, ptrm].filter(Boolean).join(' ')
         const termLabel = dates ? `${termLabelPart}: ${dates}` : termLabelPart
 
         groups.push({
@@ -280,104 +320,196 @@ function BrowseTab({
 
   return (
     <div className="tab-content browse-tab">
-      {/* ── Top filters: Term & Location ── */}
-      {/* Term checkboxes are passed up to App because toggling them triggers
-          a Supabase re-fetch. Location checkboxes are local to BrowseTab. */}
-      <div className="toolbar-top-filters">
-        <div className="filter-group">
-          <h3 className="filter-group-title">Terms:</h3>
-          <div className="filter-checkboxes">
-            <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202630')} onChange={() => toggleTerm('202630')} /> (202630) 2025/2026 Summer</label>
-            <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202700')} onChange={() => toggleTerm('202700')} /> (202700) 2026/2027 Medicine/Dentistry</label>
-            <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202710')} onChange={() => toggleTerm('202710')} /> (202710) 2026/2027 Fall</label>
-            <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202720')} onChange={() => toggleTerm('202720')} /> (202720) 2026/2027 Winter</label>
-          </div>
-        </div>
+      {/* ── Top layout: filters on left, selected panel on right ── */}
+      <div className="browse-top-layout">
+        <div className="browse-left-panel">
+          {/* Term & Location filters */}
+          <div className="toolbar-top-filters">
+            <div className="filter-group">
+              <h3 className="filter-group-title">Terms:</h3>
+              <div className="filter-checkboxes">
+                <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202630')} onChange={() => toggleTerm('202630')} /> (202630) 2025/2026 Summer</label>
+                <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202700')} onChange={() => toggleTerm('202700')} /> (202700) 2026/2027 Medicine/Dentistry</label>
+                <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202710')} onChange={() => toggleTerm('202710')} /> (202710) 2026/2027 Fall</label>
+                <label className="filter-checkbox"><input type="checkbox" checked={termFilter.has('202720')} onChange={() => toggleTerm('202720')} /> (202720) 2026/2027 Winter</label>
+              </div>
+            </div>
 
-        <div className="filter-group loc-group">
-          <h3 className="filter-group-title">Locations:</h3>
-          <div className="filter-checkboxes">
-            <label className="filter-checkbox"><input type="checkbox" checked={isLocAll} onChange={toggleLocAll} /> All</label>
-            <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Halifax')} onChange={() => toggleLoc('Halifax')} /> Halifax</label>
-            <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Truro')} onChange={() => toggleLoc('Truro')} /> Truro</label>
-            <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Online')} onChange={() => toggleLoc('Online')} /> Online</label>
-            <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Others')} onChange={() => toggleLoc('Others')} /> Others</label>
+            <div className="filter-group loc-group">
+              <h3 className="filter-group-title">Locations:</h3>
+              <div className="filter-checkboxes">
+                <label className="filter-checkbox"><input type="checkbox" checked={isLocAll} onChange={toggleLocAll} /> All</label>
+                <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Halifax')} onChange={() => toggleLoc('Halifax')} /> Halifax</label>
+                <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Truro')} onChange={() => toggleLoc('Truro')} /> Truro</label>
+                <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Online')} onChange={() => toggleLoc('Online')} /> Online</label>
+                <label className="filter-checkbox"><input type="checkbox" checked={locationFilter.has('Others')} onChange={() => toggleLoc('Others')} /> Others</label>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* ── Secondary toolbar: Search + filter controls ── */}
-      <div className="toolbar">
-        <div className="toolbar-search-row">
-          <div className="search-input-wrapper">
-            <svg className="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              id="class-search"
-              type="text"
-              className="search-input"
-              placeholder="Search by course name, code, or CRN..."
-              value={searchQuery}
-              onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-            />
-            {searchQuery && (
-              <button className="search-clear" onClick={() => { setSearchQuery(''); setCurrentPage(1) }} aria-label="Clear search">✕</button>
-            )}
-          </div>
-          {/* Result count only appears while a search is active */}
-          {searchQuery && (
-            <span className="search-result-count">
-              {filteredClasses.length} {filteredClasses.length === 1 ? 'result' : 'results'}
-            </span>
-          )}
-        </div>
-        <div className="toolbar-filter-row">
-          <select value={subjectFilter} onChange={e => { setSubjectFilter(e.target.value); setCurrentPage(1) }} className="filter-select">
-            <option value="">All Subjects</option>
-            {uniqueSubjects.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setCurrentPage(1) }} className="filter-select">
-            <option value="">All Types</option>
-            <option value="lec">Lecture</option>
-            <option value="lab">Lab</option>
-            <option value="tut">Tutorial</option>
-          </select>
-          {/* Day toggles — multi-select; a class passes if it meets on any selected day */}
-          <div className="day-toggles">
-            {['M', 'T', 'W', 'R', 'F'].map(d => (
+          {/* Secondary toolbar: Search + filter controls */}
+          <div className="toolbar">
+            <div className="toolbar-search-row">
+              <div className="search-input-wrapper">
+                <svg className="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                <input
+                  id="class-search"
+                  type="text"
+                  className="search-input"
+                  placeholder="Search by course name, code, or CRN..."
+                  value={searchQuery}
+                  onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1) }}
+                />
+                {searchQuery && (
+                  <button className="search-clear" onClick={() => { setSearchQuery(''); setCurrentPage(1) }} aria-label="Clear search">✕</button>
+                )}
+              </div>
+              {searchQuery && (
+                <span className="search-result-count">
+                  {filteredClasses.length} {filteredClasses.length === 1 ? 'result' : 'results'}
+                </span>
+              )}
+            </div>
+            <div className="toolbar-filter-row">
+              <select value={subjectFilter} onChange={e => { setSubjectFilter(e.target.value); setCurrentPage(1) }} className="filter-select">
+                <option value="">All Subjects</option>
+                {uniqueSubjects.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setCurrentPage(1) }} className="filter-select">
+                <option value="">All Types</option>
+                <option value="lec">Lecture</option>
+                <option value="lab">Lab</option>
+                <option value="tut">Tutorial</option>
+              </select>
+              <div className="day-toggles">
+                {['M', 'T', 'W', 'R', 'F'].map(d => (
+                  <button
+                    key={d}
+                    className={`day-toggle ${dayFilter.has(d) ? 'active' : ''}`}
+                    onClick={() => toggleDayFilter(d)}
+                  >{d}</button>
+                ))}
+              </div>
               <button
-                key={d}
-                className={`day-toggle ${dayFilter.has(d) ? 'active' : ''}`}
-                onClick={() => toggleDayFilter(d)}
-              >{d}</button>
-            ))}
+                className={`filter-toggle ${seatsAvailFilter ? 'active' : ''}`}
+                onClick={() => { setSeatsAvailFilter((v: boolean) => !v); setCurrentPage(1) }}
+              >Available Only</button>
+              <button
+                className={`filter-toggle ${hideCDFilter ? 'active' : ''}`}
+                onClick={() => { setHideCDFilter((v: boolean) => !v); setCurrentPage(1) }}
+              >Hide C/D</button>
+              {hasActiveFilters && (
+                <button className="filter-clear" onClick={clearFilters}>Clear Filters</button>
+              )}
+            </div>
           </div>
-          <button
-            className={`filter-toggle ${seatsAvailFilter ? 'active' : ''}`}
-            onClick={() => { setSeatsAvailFilter((v: boolean) => !v); setCurrentPage(1) }}
-          >Available Only</button>
-          <button
-            className={`filter-toggle ${hideCDFilter ? 'active' : ''}`}
-            onClick={() => { setHideCDFilter((v: boolean) => !v); setCurrentPage(1) }}
-          >Hide C/D</button>
-          {hasActiveFilters && (
-            <button className="filter-clear" onClick={clearFilters}>Clear Filters</button>
+
+          {/* Active-filter chip bar */}
+          {activeFilterLabels.length > 0 && (
+            <div className="active-filters-bar">
+              <span className="active-filters-label">Filtering:</span>
+              {activeFilterLabels.map((label) => (
+                <span key={label} className="active-filter-tag">{label}</span>
+              ))}
+              {debouncedSearchQuery && <span className="active-filter-tag">"{debouncedSearchQuery}"</span>}
+            </div>
           )}
         </div>
-      </div>
 
-      {/* Active-filter chip bar — summary of what's currently filtered */}
-      {activeFilterLabels.length > 0 && (
-        <div className="active-filters-bar">
-          <span className="active-filters-label">Filtering:</span>
-          {activeFilterLabels.map((label) => (
-            <span key={label} className="active-filter-tag">{label}</span>
-          ))}
-          {debouncedSearchQuery && <span className="active-filter-tag">"{debouncedSearchQuery}"</span>}
-        </div>
-      )}
+        {/* ── Selected Classes Panel (right column) ── */}
+        <div className="browse-right-panel">
+          <div className="selected-classes-panel" ref={selectedPanelRef}>
+              <div className="selected-panel-header">
+                <div className="selected-panel-header-row">
+                  <span className="selected-panel-title">
+                    Selected Classes
+                    <span className="selected-panel-count">{selectedClasses.length}</span>
+                  </span>
+                  <button
+                    className={`copy-all-btn${copiedAll ? ' copied' : ''}`}
+                    onClick={copyAllCrns}
+                    title="Copy all CRNs to clipboard"
+                  >
+                    {copiedAll ? '✓ Copied!' : 'Copy All CRNs'}
+                  </button>
+                </div>
+                <span className="panel-hint-text">Click a row to copy its CRN</span>
+              </div>
+              <div className="selected-panel-table-wrapper">
+                <table className="selected-panel-table">
+                  <thead>
+                    <tr>
+                      <th>CRN</th>
+                      <th>Course</th>
+                      <th>Type</th>
+                      {uniqueTerms.length > 1 && <th>Term</th>}
+                      <th className="th-name">Course Name</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedClasses.length === 0 && (
+                      <tr>
+                        <td colSpan={uniqueTerms.length > 1 ? 6 : 5} className="panel-empty-cell">No classes selected yet</td>
+                      </tr>
+                    )}
+                    {selectedClasses.map(sc => (
+                      <tr
+                        key={`${sc.CRN}-${sc.SEQ_NUMB}`}
+                        className={copiedCrn === String(sc.CRN) ? 'panel-row-copied' : 'panel-row-clickable'}
+                        onClick={() => copySingleCrn(String(sc.CRN))}
+                      >
+                        <td>
+                          <div className="crn-cell-inner">
+                            <span className="crn-value">{sc.CRN}</span>
+                            <button
+                              className={`crn-copy-btn${copiedCrn === String(sc.CRN) ? ' copied' : ''}`}
+                              onClick={(e) => { e.stopPropagation(); copySingleCrn(String(sc.CRN)) }}
+                              title="Copy CRN"
+                              aria-label="Copy CRN"
+                            >
+                              {copiedCrn === String(sc.CRN) ? '✓' : <CopyIcon />}
+                            </button>
+                          </div>
+                        </td>
+                        <td className="course-col">{sc.SUBJ_CODE} {sc.CRSE_NUMB}</td>
+                        <td>{sc.SCHD_TYPE ? sc.SCHD_TYPE.toUpperCase() : '—'}</td>
+                        {uniqueTerms.length > 1 && (
+                          <td style={{ whiteSpace: 'nowrap', fontSize: 11, color: '#64748b' }}>
+                            {getTermShortName(sc.TERM_CODE || '')}
+                          </td>
+                        )}
+                        <td className="course-name-cell">
+                          {sc.CRSE_TITLE}
+                          {conflicts.has(`${sc.CRN}-${sc.SEQ_NUMB}`) && (
+                            <span className="row-status-badge badge-conflict">conflict</span>
+                          )}
+                          {duplicateCourses.has(`${sc.SUBJ_CODE} ${sc.CRSE_NUMB} ${sc.SCHD_TYPE || 'Lec'}`) && (
+                            <span className="row-status-badge badge-duplicate">duplicate</span>
+                          )}
+                          {missingLinks.has(`${sc.CRN}-${sc.SEQ_NUMB}`) && (
+                            <span className="row-status-badge badge-missing-link">needs linked section</span>
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            className="panel-remove-btn"
+                            onClick={(e) => { e.stopPropagation(); toggleClassSelection(sc) }}
+                            aria-label={`Remove ${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`}
+                            title="Deselect class"
+                          >✕</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+      </div>
 
       {/* Data accuracy notice */}
       {classes.length > 0 && (
@@ -454,16 +586,18 @@ function BrowseTab({
                   {/* One ClassRow per section in this course group */}
                   {group.sections.map(cls => {
                     const id = `${cls.CRN}-${cls.SEQ_NUMB}`
+                    const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
                     return (
                       <ClassRow
                         key={id}
                         cls={cls}
-                        isSelected={selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)}
+                        isSelected={isSelected}
                         hasConflict={conflicts.has(id)}
                         conflictList={conflicts.get(id)}
                         isInvalidLink={incompatibleLinks.has(id)}
                         hasMissingLink={missingLinks.has(id)}
                         missingLinkTokens={missingLinks.get(id)}
+                        isDuplicate={isSelected && duplicateCourses.has(`${cls.SUBJ_CODE} ${cls.CRSE_NUMB} ${cls.SCHD_TYPE || 'Lec'}`)}
                         searchQuery={debouncedSearchQuery}
                         onToggle={toggleClassSelection}
                         onShowRestrictions={showRestrictions}
@@ -507,6 +641,14 @@ function BrowseTab({
                 </span>
               </>
             )}
+            {duplicateCourses.size > 0 && (
+              <>
+                <span className="mini-preview-dot">·</span>
+                <span className="mini-preview-conflict" style={{ backgroundColor: '#fef9c3', color: '#854d0e', borderColor: '#fde047' }}>
+                  {duplicateCourses.size} duplicate section{duplicateCourses.size > 1 ? 's' : ''}
+                </span>
+              </>
+            )}
             {conflicts.size > 0 && (
               <>
                 <span className="mini-preview-dot">·</span>
@@ -529,6 +671,56 @@ function BrowseTab({
           </button>
         </div>
       )}
+      {/* ── Floating mini selected-classes panel ───────────────── */}
+      {showFloating && selectedClasses.length > 0 && (
+        <div className="floating-selected-panel">
+          <div className="floating-panel-header">
+            <span className="floating-panel-title">
+              Selected
+              <span className="selected-panel-count">{selectedClasses.length}</span>
+            </span>
+          </div>
+          <table className="floating-panel-table">
+            <thead>
+              <tr>
+                <th>CRN</th>
+                <th>Course</th>
+                <th>Type</th>
+                {uniqueTerms.length > 1 && <th>Term</th>}
+                <th></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {selectedClasses.map(sc => {
+                const id = `${sc.CRN}-${sc.SEQ_NUMB}`
+                const type = sc.SCHD_TYPE?.toUpperCase() || 'LEC'
+                return (
+                  <tr key={id}>
+                    <td className="fp-crn">{sc.CRN}</td>
+                    <td className="fp-course">{sc.SUBJ_CODE} {sc.CRSE_NUMB}</td>
+                    <td><span className={`fp-type fp-type-${type.toLowerCase()}`}>{type}</span></td>
+                    {uniqueTerms.length > 1 && <td className="fp-term">{getTermShortName(sc.TERM_CODE || '')}</td>}
+                    <td className="fp-badges">
+                      {conflicts.has(id) && <span className="row-status-badge badge-conflict">conflict</span>}
+                      {duplicateCourses.has(`${sc.SUBJ_CODE} ${sc.CRSE_NUMB} ${sc.SCHD_TYPE || 'Lec'}`) && <span className="row-status-badge badge-duplicate">duplicate</span>}
+                      {missingLinks.has(id) && <span className="row-status-badge badge-missing-link">needs link</span>}
+                    </td>
+                    <td>
+                      <button
+                        className="panel-remove-btn"
+                        onClick={() => toggleClassSelection(sc)}
+                        aria-label={`Remove ${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`}
+                      >✕</button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {restrictionModal && (
         <RestrictionModal
           cls={restrictionModal.cls}

@@ -224,17 +224,9 @@ export function exportICS(selectedClasses: CourseSection[], workspaceName: strin
   triggerDownload(ics, `${workspaceName || 'schedule'}.ics`, 'text/calendar;charset=utf-8')
 }
 
-// ── exportCSV ─────────────────────────────────────────────────
+// ── exportXLSX ────────────────────────────────────────────────
 
-const CSV_HEADERS = ['Subject', 'Course #', 'Title', 'Section', 'CRN', 'Type', 'Credits', 'Days', 'Times', 'Location']
-
-function csvEscape(val: string | number | undefined | null): string {
-  const s = String(val ?? '')
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-    return `"${s.replace(/"/g, '""')}"`
-  }
-  return s
-}
+const XLSX_HEADERS = ['Subject', 'Course #', 'Title', 'Section', 'CRN', 'Type', 'Credits', 'Days', 'Times', 'Location']
 
 /** Derives a human-readable days string like "MWF" from the day columns. */
 function parseDays(cls: CourseSection): string {
@@ -263,34 +255,53 @@ function formatTimes(timesStr: string | null | undefined): string {
 }
 
 /**
- * Generates and downloads a .csv file listing all selected classes
- * with their schedule details.
+ * Generates and downloads a .xlsx file listing all selected classes
+ * with their schedule details. CRNs are exported as text to prevent
+ * Excel from mangling them as numbers.
  */
-export function exportCSV(selectedClasses: CourseSection[]) {
-  const rows = [CSV_HEADERS.map(csvEscape).join(',')]
+export async function exportXLSX(selectedClasses: CourseSection[]) {
+  const XLSX = await import('xlsx')
 
-  for (const cls of selectedClasses) {
+  const rows = selectedClasses.map(cls => {
     const location = splitByBr(cls.LOCATIONS)
       .map((l: string) => l.replace(/<[^>]*>/g, '').trim())
       .filter(Boolean)
       .join('; ')
 
-    const row = [
-      cls.SUBJ_CODE,
-      cls.CRSE_NUMB,
-      cls.CRSE_TITLE,
-      cls.SEQ_NUMB,
-      cls.CRN,
-      cls.SCHD_TYPE,
-      cls.CREDIT_HRS,
-      parseDays(cls),
-      formatTimes(cls.TIMES),
-      location,
-    ].map(csvEscape).join(',')
-    rows.push(row)
-  }
+    return {
+      Subject: cls.SUBJ_CODE ?? '',
+      'Course #': cls.CRSE_NUMB ?? '',
+      Title: cls.CRSE_TITLE ?? '',
+      Section: cls.SEQ_NUMB ?? '',
+      // Prefix with tab so Excel treats CRN as text, not a number
+      CRN: { t: 's', v: String(cls.CRN ?? '') },
+      Type: cls.SCHD_TYPE ?? '',
+      Credits: cls.CREDIT_HRS ?? '',
+      Days: parseDays(cls),
+      Times: formatTimes(cls.TIMES),
+      Location: location,
+    }
+  })
 
-  triggerDownload(rows.join('\n'), 'schedule.csv', 'text/csv;charset=utf-8')
+  const ws = XLSX.utils.json_to_sheet(rows, { header: XLSX_HEADERS })
+
+  // Set column widths
+  ws['!cols'] = [
+    { wch: 8 },   // Subject
+    { wch: 10 },  // Course #
+    { wch: 36 },  // Title
+    { wch: 8 },   // Section
+    { wch: 8 },   // CRN
+    { wch: 8 },   // Type
+    { wch: 8 },   // Credits
+    { wch: 8 },   // Days
+    { wch: 18 },  // Times
+    { wch: 36 },  // Location
+  ]
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Schedule')
+  XLSX.writeFile(wb, 'schedule.xlsx')
 }
 
 // ── exportPNG ─────────────────────────────────────────────────

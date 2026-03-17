@@ -11,15 +11,15 @@
 // All calendar state (eventsService, calendar instance) lives here so
 // switching tabs doesn't disturb browse-tab filter state, and vice versa.
 
-import { useState, useMemo, useEffect, useRef, Component } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, Component } from 'react'
 import type { ReactNode, ErrorInfo } from 'react'
 import { ScheduleXCalendar, useCalendarApp } from '@schedule-x/react'
 import { createViewWeek } from '@schedule-x/calendar'
 import { createEventsServicePlugin } from '@schedule-x/events-service'
 import '@schedule-x/theme-default/dist/calendar.css'
 import type { CourseSection } from '../types'
-import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, DAY_CONFIG } from '../utils/classUtils'
-import { exportICS, exportCSV, exportPNG, exportPDF } from '../utils/exportUtils'
+import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, DAY_CONFIG, getTermLabel, getTermShortName } from '../utils/classUtils'
+import { exportICS, exportXLSX, exportPNG, exportPDF } from '../utils/exportUtils'
 
 // Temporal is injected as a global by the temporal-polyfill package
 declare const Temporal: any
@@ -63,9 +63,19 @@ class CalendarErrorBoundary extends Component<{ children: ReactNode }, EBState> 
   }
 }
 
+// Minimal clipboard icon for the CRN copy button
+const CopyIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="5" y="1" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+    <rect x="1" y="4" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="white"/>
+  </svg>
+)
+
 type ScheduleTabProps = {
   selectedClasses: CourseSection[]            // sections in the active workspace
   conflicts: Map<string, string[]>  // used to show the conflict banner
+  duplicateCourses: Set<string>     // course+type keys where 2+ sections are selected
+  missingLinks: Map<string, string[]>         // CRN-SEQ → unsatisfied link token strings
   totalCredits: number
   workspaceName: string
   toggleClassSelection: (cls: CourseSection) => void
@@ -75,11 +85,45 @@ type ScheduleTabProps = {
 function ScheduleTab({
   selectedClasses,
   conflicts,
+  duplicateCourses,
+  missingLinks,
   totalCredits,
   workspaceName,
   toggleClassSelection,
   setActiveTab,
 }: ScheduleTabProps) {
+
+  // ── Copy-to-clipboard state ───────────────────────────────────
+  const [copiedCrn, setCopiedCrn] = useState<string | null>(null)
+  const [copiedAll, setCopiedAll] = useState(false)
+
+  const copyAllCrns = useCallback(() => {
+    const crns = selectedClasses.map(c => String(c.CRN)).join('\n')
+    navigator.clipboard.writeText(crns).then(() => {
+      setCopiedAll(true)
+      setTimeout(() => setCopiedAll(false), 1800)
+    })
+  }, [selectedClasses])
+
+  const copySingleCrn = useCallback((crn: string) => {
+    navigator.clipboard.writeText(crn).then(() => {
+      setCopiedCrn(crn)
+      setTimeout(() => setCopiedCrn(null), 1800)
+    })
+  }, [])
+
+  // ── Semester view filter ─────────────────────────────────────
+  const [semesterView, setSemesterView] = useState<string>('')
+
+  const uniqueTerms = useMemo(() =>
+    [...new Set(selectedClasses.map(c => c.TERM_CODE).filter(Boolean))] as string[],
+    [selectedClasses]
+  )
+
+  // When the set of available semesters changes, default to the first one
+  useEffect(() => {
+    setSemesterView(uniqueTerms[0] ?? '')
+  }, [uniqueTerms.join(',')])
 
   // ── Export dropdown ──────────────────────────────────────────
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -118,16 +162,20 @@ function ScheduleTab({
     }
     try {
 
+      const classesToRender = uniqueTerms.length <= 1 || !semesterView
+        ? selectedClasses
+        : selectedClasses.filter(c => c.TERM_CODE === semesterView)
+
       const evs: any[] = []
       const asyncCls: CourseSection[] = []
       let earliest = 480   // 8:00 AM default lower bound (minutes since midnight)
       let latest = 1020    // 17:00 default upper bound
       let weekend = false
 
-      // Assign one color per unique course+component (SUBJ + NUMB + TYPE); 
+      // Assign one color per unique course+component (SUBJ + NUMB + TYPE);
       const colorMap = new Map<string, string>()
       let colorIdx = 0
-      selectedClasses.forEach(cls => {
+      classesToRender.forEach(cls => {
         const courseKey = `${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`
         if (!colorMap.has(courseKey)) {
           colorMap.set(courseKey, `course-${colorIdx % COLOR_PALETTE.length}`)
@@ -135,7 +183,7 @@ function ScheduleTab({
         }
       })
 
-      selectedClasses.forEach(cls => {
+      classesToRender.forEach(cls => {
         const timesArr = splitByBr(cls.TIMES)
         // A section is async/TBA if none of its time values contain a hyphen
         // (all valid "HHMM-HHMM" ranges have a hyphen)
@@ -227,7 +275,7 @@ function ScheduleTab({
       console.error('[ScheduleTab] Failed to build calendar events:', err)
       return { ...defaultResult, buildError: err instanceof Error ? err : new Error(String(err)) }
     }
-  }, [selectedClasses])
+  }, [selectedClasses, semesterView])
 
   // ── Calendar setup ───────────────────────────────────────────
   //
@@ -269,20 +317,6 @@ function ScheduleTab({
     eventsService.set(calendarEvents)
   }, [calendarEvents, eventsService])
 
-  // ── Empty state ──────────────────────────────────────────────
-  if (selectedClasses.length === 0) {
-    return (
-      <div className="tab-content schedule-tab">
-        <div className="schedule-empty">
-          <div className="empty-icon">📅</div>
-          <div className="empty-title">No classes selected</div>
-          <div className="empty-hint">Go to Browse Classes and check the boxes next to classes you want to take</div>
-          <button className="empty-cta" onClick={() => setActiveTab('browse')}>← Browse Classes</button>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="tab-content schedule-tab">
       {/* Event-build error — shown if useMemo threw while converting classes to calendar events */}
@@ -292,13 +326,6 @@ function ScheduleTab({
           <pre style={{ marginTop: 8, fontSize: 12, color: '#7f1d1d', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
             {buildError.message}{'\n\n'}{buildError.stack}
           </pre>
-        </div>
-      )}
-
-      {/* Conflict banner — shown at the top so it's immediately visible */}
-      {conflicts.size > 0 && (
-        <div className="conflict-banner">
-          Schedule conflict — {conflicts.size} class{conflicts.size > 1 ? 'es' : ''} have overlapping times
         </div>
       )}
 
@@ -322,35 +349,134 @@ function ScheduleTab({
             {showExportMenu && (
               <div className="export-dropdown" role="menu">
                 <button role="menuitem" onClick={() => { exportICS(selectedClasses, workspaceName); setShowExportMenu(false) }}>ICS Calendar</button>
-                <button role="menuitem" onClick={() => { exportCSV(selectedClasses); setShowExportMenu(false) }}>CSV Spreadsheet</button>
+                <button role="menuitem" onClick={() => { exportXLSX(selectedClasses); setShowExportMenu(false) }}>Excel Spreadsheet</button>
                 <button role="menuitem" onClick={() => { exportPNG(captureRef.current!); setShowExportMenu(false) }}>PNG Image</button>
                 <button role="menuitem" onClick={() => { exportPDF(captureRef.current!, workspaceName); setShowExportMenu(false) }}>PDF Document</button>
               </div>
             )}
           </div>
         </div>
-        <div className="schedule-chips">
-          {selectedClasses.map(sc => (
-            <span key={`${sc.CRN}-${sc.SEQ_NUMB}`} className="selected-chip">
-              {sc.SUBJ_CODE && sc.CRSE_NUMB
-                ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
-                : `CRN ${sc.CRN}`
-              } · {sc.SEQ_NUMB}
-              <button className="chip-remove" onClick={() => toggleClassSelection(sc)} aria-label="Remove">✕</button>
-            </span>
-          ))}
+        <div className="selected-classes-panel">
+          <div className="selected-panel-header">
+            <div className="selected-panel-header-row">
+              <span className="selected-panel-title">
+                Selected Classes
+                <span className="selected-panel-count">{selectedClasses.length}</span>
+              </span>
+              <button
+                className={`copy-all-btn${copiedAll ? ' copied' : ''}`}
+                onClick={copyAllCrns}
+                title="Copy all CRNs to clipboard"
+              >
+                {copiedAll ? '✓ Copied!' : 'Copy All CRNs'}
+              </button>
+            </div>
+            <span className="panel-hint-text">Click a row to copy its CRN</span>
+          </div>
+          <div className="selected-panel-table-wrapper">
+            <table className="selected-panel-table">
+              <thead>
+                <tr>
+                  <th>CRN</th>
+                  <th>Course</th>
+                  <th>Type</th>
+                  {uniqueTerms.length > 1 && <th>Term</th>}
+                  <th className="th-name">Course Name</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedClasses.length === 0 && (
+                  <tr>
+                    <td colSpan={uniqueTerms.length > 1 ? 6 : 5} className="panel-empty-cell">No classes selected yet</td>
+                  </tr>
+                )}
+                {selectedClasses.map(sc => (
+                  <tr
+                    key={`${sc.CRN}-${sc.SEQ_NUMB}`}
+                    className={copiedCrn === String(sc.CRN) ? 'panel-row-copied' : 'panel-row-clickable'}
+                    onClick={() => copySingleCrn(String(sc.CRN))}
+                  >
+                    <td>
+                      <div className="crn-cell-inner">
+                        <span className="crn-value">{sc.CRN}</span>
+                        <button
+                          className={`crn-copy-btn${copiedCrn === String(sc.CRN) ? ' copied' : ''}`}
+                          onClick={(e) => { e.stopPropagation(); copySingleCrn(String(sc.CRN)) }}
+                          title="Copy CRN"
+                          aria-label="Copy CRN"
+                        >
+                          {copiedCrn === String(sc.CRN) ? '✓' : <CopyIcon />}
+                        </button>
+                      </div>
+                    </td>
+                    <td className="course-col">{sc.SUBJ_CODE} {sc.CRSE_NUMB}</td>
+                    <td>{sc.SCHD_TYPE ? sc.SCHD_TYPE.toUpperCase() : '—'}</td>
+                    {uniqueTerms.length > 1 && (
+                      <td style={{ whiteSpace: 'nowrap', fontSize: 11, color: '#64748b' }}>
+                        {getTermShortName(sc.TERM_CODE || '')}
+                      </td>
+                    )}
+                    <td className="course-name-cell">
+                      {sc.CRSE_TITLE}
+                      {conflicts.has(`${sc.CRN}-${sc.SEQ_NUMB}`) && (
+                        <span className="row-status-badge badge-conflict">conflict</span>
+                      )}
+                      {duplicateCourses.has(`${sc.SUBJ_CODE} ${sc.CRSE_NUMB} ${sc.SCHD_TYPE || 'Lec'}`) && (
+                        <span className="row-status-badge badge-duplicate">duplicate</span>
+                      )}
+                      {missingLinks.has(`${sc.CRN}-${sc.SEQ_NUMB}`) && (
+                        <span className="row-status-badge badge-missing-link">needs linked section</span>
+                      )}
+                    </td>
+                    <td>
+                      <button
+                        className="panel-remove-btn"
+                        onClick={(e) => { e.stopPropagation(); toggleClassSelection(sc) }}
+                        aria-label={`Remove ${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`}
+                        title="Deselect class"
+                      >✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
+
+      {/* Semester tabs — only shown when courses from 2+ semesters are selected */}
+      {uniqueTerms.length > 1 && (
+        <div className="semester-tabs">
+          {uniqueTerms.map(term => (
+            <button
+              key={term}
+              className={`semester-tab-btn${semesterView === term ? ' active' : ''}`}
+              onClick={() => setSemesterView(term)}
+            >
+              {getTermLabel(term)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Capture target for PNG/PDF export — wraps calendar + async section */}
       <div ref={captureRef}>
 
-        {/* Schedule-X weekly calendar */}
-        <CalendarErrorBoundary>
-          <div className="calendar-full">
-            <ScheduleXCalendar calendarApp={calendar} />
+        {selectedClasses.length === 0 ? (
+          <div className="schedule-empty">
+            <div className="empty-icon">📅</div>
+            <div className="empty-title">No classes selected</div>
+            <div className="empty-hint">Go to Browse Classes and check the boxes next to classes you want to take</div>
+            <button className="empty-cta" onClick={() => setActiveTab('browse')}>← Browse Classes</button>
           </div>
-        </CalendarErrorBoundary>
+        ) : (
+          <CalendarErrorBoundary>
+            <div className="calendar-full">
+              <ScheduleXCalendar calendarApp={calendar} />
+            </div>
+          </CalendarErrorBoundary>
+        )}
 
         {/* Async/TBA section — card grid below the calendar for courses with
           no fixed schedule (online-only or time not yet announced) */}

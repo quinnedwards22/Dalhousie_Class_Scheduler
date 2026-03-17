@@ -6,6 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 
+from scheduler.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 from scheduler.scraper import scrape_all
 from scheduler.uploader import upload, upload_restrictions
 
@@ -73,6 +74,17 @@ async def status():
         **state,
         "next_run_utc": str(job.next_run_time) if job else None,
     }
+
+
+@app.get("/api/test-db")
+async def test_db():
+    from supabase import create_client
+    try:
+        client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        result = client.table("metadata").select("*").limit(1).execute()
+        return {"status": "ok", "data": result.data}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 
 @app.post("/api/trigger")

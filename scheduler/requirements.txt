@@ -2,5 +2,5 @@ fastapi
 uvicorn[standard]
 apscheduler
 aiohttp
-supabase
+supabase==2.22.4
 python-dotenv
