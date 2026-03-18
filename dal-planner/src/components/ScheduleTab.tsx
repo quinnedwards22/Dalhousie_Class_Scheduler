@@ -20,6 +20,7 @@ import '@schedule-x/theme-default/dist/calendar.css'
 import type { CourseSection } from '../types'
 import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, DAY_CONFIG, getTermLabel, getTermShortName } from '../utils/classUtils'
 import { exportICS, exportXLSX, exportPNG, exportPDF } from '../utils/exportUtils'
+import { track } from '../utils/analytics'
 
 // Temporal is injected as a global by the temporal-polyfill package
 declare const Temporal: any
@@ -100,6 +101,7 @@ function ScheduleTab({
   const copyAllCrns = useCallback(() => {
     const crns = selectedClasses.map(c => String(c.CRN)).join('\n')
     navigator.clipboard.writeText(crns).then(() => {
+      track('crn_copied_all', { count: selectedClasses.length, source: 'schedule' })
       setCopiedAll(true)
       setTimeout(() => setCopiedAll(false), 1800)
     })
@@ -107,6 +109,7 @@ function ScheduleTab({
 
   const copySingleCrn = useCallback((crn: string) => {
     navigator.clipboard.writeText(crn).then(() => {
+      track('crn_copied', { crn, source: 'schedule' })
       setCopiedCrn(crn)
       setTimeout(() => setCopiedCrn(null), 1800)
     })
@@ -348,10 +351,10 @@ function ScheduleTab({
             </button>
             {showExportMenu && (
               <div className="export-dropdown" role="menu">
-                <button role="menuitem" onClick={() => { exportICS(selectedClasses, workspaceName); setShowExportMenu(false) }}>ICS Calendar</button>
-                <button role="menuitem" onClick={() => { exportXLSX(selectedClasses); setShowExportMenu(false) }}>Excel Spreadsheet</button>
-                <button role="menuitem" onClick={() => { exportPNG(captureRef.current!); setShowExportMenu(false) }}>PNG Image</button>
-                <button role="menuitem" onClick={() => { exportPDF(captureRef.current!, workspaceName); setShowExportMenu(false) }}>PDF Document</button>
+                <button role="menuitem" onClick={() => { track('schedule_exported', { format: 'ics', class_count: selectedClasses.length }); exportICS(selectedClasses, workspaceName); setShowExportMenu(false) }}>ICS Calendar</button>
+                <button role="menuitem" onClick={() => { track('schedule_exported', { format: 'xlsx', class_count: selectedClasses.length }); exportXLSX(selectedClasses); setShowExportMenu(false) }}>Excel Spreadsheet</button>
+                <button role="menuitem" onClick={() => { track('schedule_exported', { format: 'png', class_count: selectedClasses.length }); exportPNG(captureRef.current!); setShowExportMenu(false) }}>PNG Image</button>
+                <button role="menuitem" onClick={() => { track('schedule_exported', { format: 'pdf', class_count: selectedClasses.length }); exportPDF(captureRef.current!, workspaceName); setShowExportMenu(false) }}>PDF Document</button>
               </div>
             )}
           </div>
@@ -452,7 +455,7 @@ function ScheduleTab({
             <button
               key={term}
               className={`semester-tab-btn${semesterView === term ? ' active' : ''}`}
-              onClick={() => setSemesterView(term)}
+              onClick={() => { track('semester_view_changed', { term }); setSemesterView(term) }}
             >
               {getTermLabel(term)}
             </button>
@@ -468,7 +471,7 @@ function ScheduleTab({
             <div className="empty-icon">📅</div>
             <div className="empty-title">No classes selected</div>
             <div className="empty-hint">Go to Browse Classes and check the boxes next to classes you want to take</div>
-            <button className="empty-cta" onClick={() => setActiveTab('browse')}>← Browse Classes</button>
+            <button className="empty-cta" onClick={() => { track('tab_changed', { tab: 'browse', source: 'empty_schedule' }); setActiveTab('browse') }}>← Browse Classes</button>
           </div>
         ) : (
           <CalendarErrorBoundary>

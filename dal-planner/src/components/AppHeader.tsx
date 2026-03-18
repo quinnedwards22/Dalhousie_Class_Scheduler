@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { track } from '../utils/analytics'
 
 type Workspace = { id: string; name: string; classes: any[] }
 type AppState = { activeWorkspaceId: string; workspaces: Workspace[] }
@@ -66,14 +67,14 @@ const AppHeader = React.memo(function AppHeader({
       <nav className="header-tabs">
         <button
           className={`header-tab ${activeTab === 'browse' ? 'active' : ''}`}
-          onClick={() => setActiveTab('browse')}
+          onClick={() => { track('tab_changed', { tab: 'browse', source: 'header' }); setActiveTab('browse') }}
         >
           Browse Classes
         </button>
         <div className="schedule-tab-wrapper">
           <button
             className={`header-tab ${activeTab === 'schedule' ? 'active' : ''}`}
-            onClick={() => setActiveTab('schedule')}
+            onClick={() => { track('tab_changed', { tab: 'schedule', source: 'header' }); setActiveTab('schedule') }}
           >
             My Schedule
             {selectedCount > 0 && (

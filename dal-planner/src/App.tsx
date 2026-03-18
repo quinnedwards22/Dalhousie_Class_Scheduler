@@ -7,6 +7,7 @@ import BrowseTab from './components/BrowseTab'
 import ScheduleTab from './components/ScheduleTab'
 import AboutModal from './components/AboutModal'
 import type { CourseSection, AppState } from './types'
+import { track } from './utils/analytics'
 
 const defaultState: AppState = {
   activeWorkspaceId: '1',
@@ -78,6 +79,7 @@ function App() {
     setAppState(prev => {
       const newId = String(Date.now())
       const newName = `Plan ${String.fromCharCode(65 + prev.workspaces.length)}`
+      track('workspace_created', { workspace_name: newName, total_workspaces: prev.workspaces.length + 1 })
       return {
         activeWorkspaceId: newId,
         workspaces: [...prev.workspaces, { id: newId, name: newName, classes: [] }]
@@ -86,10 +88,12 @@ function App() {
   }, [])
 
   const switchWorkspace = useCallback((id: string) => {
+    track('workspace_switched')
     setAppState(prev => ({ ...prev, activeWorkspaceId: id }))
   }, [])
 
   const deleteWorkspace = useCallback((id: string) => {
+    track('workspace_deleted')
     setAppState(prev => {
       if (prev.workspaces.length <= 1) return prev
       const nextWorkspaces = prev.workspaces.filter(w => w.id !== id)
@@ -101,7 +105,9 @@ function App() {
   const toggleTerm = useCallback((term: string) => {
     setTermFilter(prev => {
       const next = new Set(prev)
+      const action = next.has(term) ? 'deselected' : 'selected'
       next.has(term) ? next.delete(term) : next.add(term)
+      track('term_filter_toggled', { term, action, active_terms: Array.from(next) })
       return next
     })
   }, [])
@@ -109,6 +115,12 @@ function App() {
   const toggleClassSelection = useCallback((cls: CourseSection) => {
     setSelectedClasses(prev => {
       const isSelected = prev.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
+      track(isSelected ? 'class_deselected' : 'class_selected', {
+        crn: cls.CRN,
+        course: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}`,
+        type: cls.SCHD_TYPE,
+        term: cls.TERM_CODE,
+      })
       if (isSelected) return prev.filter(c => !(c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB))
       return [...prev, cls]
     })
@@ -425,7 +437,7 @@ function App() {
           For official course information, visit{' '}
           <a href="https://www.dal.ca" target="_blank" rel="noopener noreferrer">dal.ca</a>.
         </span>
-        <button className="footer-about-link" onClick={() => setShowAbout(true)}>About</button>
+        <button className="footer-about-link" onClick={() => { track('about_modal_opened'); setShowAbout(true) }}>About</button>
       </footer>
 
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}

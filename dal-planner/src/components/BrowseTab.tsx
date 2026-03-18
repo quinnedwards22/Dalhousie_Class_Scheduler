@@ -29,6 +29,7 @@ import { supabase } from '../utils/supabase'
 import ClassRow from './ClassRow'
 import PaginationControls from './PaginationControls'
 import RestrictionModal from './RestrictionModal'
+import { track } from '../utils/analytics'
 
 type BrowseTabProps = {
   classes: CourseSection[]                        // full roster for the selected term(s)
@@ -107,6 +108,7 @@ function BrowseTab({
   const copyAllCrns = useCallback(() => {
     const crns = selectedClasses.map(c => String(c.CRN)).join('\n')
     navigator.clipboard.writeText(crns).then(() => {
+      track('crn_copied_all', { count: selectedClasses.length, source: 'browse' })
       setCopiedAll(true)
       setTimeout(() => setCopiedAll(false), 1800)
     })
@@ -114,6 +116,7 @@ function BrowseTab({
 
   const copySingleCrn = useCallback((crn: string) => {
     navigator.clipboard.writeText(crn).then(() => {
+      track('crn_copied', { crn, source: 'browse' })
       setCopiedCrn(crn)
       setTimeout(() => setCopiedCrn(null), 1800)
     })
@@ -122,6 +125,7 @@ function BrowseTab({
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery)
+      if (searchQuery.trim()) track('search_performed', { query: searchQuery.trim() })
     }, 150)
     return () => clearTimeout(handler)
   }, [searchQuery])
@@ -155,6 +159,7 @@ function BrowseTab({
   } | null>(null)
 
   const showRestrictions = useCallback(async (crn: string, cls: CourseSection) => {
+    track('restrictions_viewed', { crn, course: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}` })
     setRestrictionModal({ crn, cls, data: null, loading: true })
     const { data } = await supabase
       .from('class_restrictions')
@@ -170,6 +175,7 @@ function BrowseTab({
 
   // Toggle all locations on/off; reset to page 1
   const toggleLocAll = useCallback(() => {
+    track('location_filter_toggled', { location: 'all', action: isLocAll ? 'deselected' : 'selected' })
     setLocationFilter(isLocAll ? new Set() : new Set(['Halifax', 'Truro', 'Online', 'Others']))
     setCurrentPage(1)
   }, [isLocAll])
@@ -177,7 +183,9 @@ function BrowseTab({
   const toggleLoc = useCallback((loc: string) => {
     setLocationFilter(prev => {
       const next = new Set(prev)
+      const action = next.has(loc) ? 'deselected' : 'selected'
       next.has(loc) ? next.delete(loc) : next.add(loc)
+      track('location_filter_toggled', { location: loc, action })
       return next
     })
     setCurrentPage(1)
@@ -186,7 +194,9 @@ function BrowseTab({
   const toggleDayFilter = useCallback((day: string) => {
     setDayFilter(prev => {
       const next = new Set(prev)
+      const action = next.has(day) ? 'deselected' : 'selected'
       next.has(day) ? next.delete(day) : next.add(day)
+      track('day_filter_toggled', { day, action })
       return next
     })
     setCurrentPage(1)
@@ -195,6 +205,7 @@ function BrowseTab({
   // Reset all secondary filters (search query and location are intentionally
   // excluded — they are separate UI controls with their own clear affordances)
   const clearFilters = useCallback(() => {
+    track('filters_cleared')
     setSubjectFilter('')
     setTypeFilter('')
     setDayFilter(new Set())
@@ -374,11 +385,11 @@ function BrowseTab({
               )}
             </div>
             <div className="toolbar-filter-row">
-              <select value={subjectFilter} onChange={e => { setSubjectFilter(e.target.value); setCurrentPage(1) }} className="filter-select">
+              <select value={subjectFilter} onChange={e => { setSubjectFilter(e.target.value); setCurrentPage(1); if (e.target.value) track('subject_filter_changed', { subject: e.target.value }) }} className="filter-select">
                 <option value="">All Subjects</option>
                 {uniqueSubjects.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
-              <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setCurrentPage(1) }} className="filter-select">
+              <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setCurrentPage(1); if (e.target.value) track('type_filter_changed', { type: e.target.value }) }} className="filter-select">
                 <option value="">All Types</option>
                 <option value="lec">Lecture</option>
                 <option value="lab">Lab</option>
@@ -395,11 +406,11 @@ function BrowseTab({
               </div>
               <button
                 className={`filter-toggle ${seatsAvailFilter ? 'active' : ''}`}
-                onClick={() => { setSeatsAvailFilter((v: boolean) => !v); setCurrentPage(1) }}
+                onClick={() => { setSeatsAvailFilter((v: boolean) => { track('seats_filter_toggled', { active: !v }); return !v }); setCurrentPage(1) }}
               >Available Only</button>
               <button
                 className={`filter-toggle ${hideCDFilter ? 'active' : ''}`}
-                onClick={() => { setHideCDFilter((v: boolean) => !v); setCurrentPage(1) }}
+                onClick={() => { setHideCDFilter((v: boolean) => { track('hide_cd_filter_toggled', { active: !v }); return !v }); setCurrentPage(1) }}
               >Hide C/D</button>
               {hasActiveFilters && (
                 <button className="filter-clear" onClick={clearFilters}>Clear Filters</button>
@@ -666,7 +677,7 @@ function BrowseTab({
               </span>
             ))}
           </div>
-          <button className="mini-preview-cta" onClick={() => setActiveTab('schedule')}>
+          <button className="mini-preview-cta" onClick={() => { track('tab_changed', { tab: 'schedule', source: 'mini_preview' }); setActiveTab('schedule') }}>
             View Schedule →
           </button>
         </div>
