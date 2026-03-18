@@ -373,6 +373,10 @@ function App() {
         </span>
       </div>
 
+      <div className="mobile-warning">
+        <span>⚠️ This tool is designed for desktop. Mobile experience may be limited — some features work best on a larger screen.</span>
+      </div>
+
       {envError ? (
         <main className="main-content env-error-container">
           <h2 className="env-error-title">Missing Environment Variables</h2>

@@ -2140,3 +2140,132 @@
   background: #F3F7F2;
   color: #496E3C;
 }
+
+/* ── Mobile Warning Banner (hidden on desktop) ─────── */
+.mobile-warning {
+  display: none;
+}
+
+/* ── Mobile (≤ 768px) ───────────────────────────────── */
+@media (max-width: 768px) {
+
+  /* Warning banner — show only on mobile */
+  .mobile-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #FFF7ED;
+    border-bottom: 1px solid #FED7AA;
+    color: #9A3412;
+    font-size: 0.78rem;
+    padding: 8px 16px;
+    flex-shrink: 0;
+    line-height: 1.4;
+  }
+
+  /* ── Header ── */
+  .app-header {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 52px;
+    padding: 8px 16px;
+    gap: 6px 10px;
+  }
+
+  .app-header h1 {
+    font-size: 1.05rem;
+  }
+
+  .workspace-selector {
+    margin-left: 0;
+    order: 3;
+    flex: 1 1 auto;
+  }
+
+  .header-tabs {
+    width: 100%;
+    margin-left: 0;
+    border-top: 1px solid #E5E7EB;
+    padding-top: 2px;
+    order: 10;
+  }
+
+  .header-tab {
+    padding: 0 14px;
+    font-size: 0.78rem;
+  }
+
+  .header-credits,
+  .header-conflict {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+  }
+
+  /* ── Browse Tab ── */
+  .browse-tab {
+    padding: 10px 12px 0;
+  }
+
+  .browse-top-layout {
+    flex-direction: column;
+  }
+
+  .browse-left-panel,
+  .browse-right-panel {
+    flex: none;
+    width: 100%;
+  }
+
+  /* Floating selected panel: full-width at top */
+  .floating-selected-panel {
+    width: calc(100vw - 24px);
+    right: 12px;
+    top: auto;
+    max-height: 45vh;
+  }
+
+  /* ── Schedule Tab ── */
+  .schedule-tab {
+    padding: 12px;
+  }
+
+  .schedule-stats {
+    flex-wrap: wrap;
+  }
+
+  /* ── Data Table: allow horizontal scroll ── */
+  .table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .data-table {
+    min-width: 600px;
+  }
+
+  /* ── Async grid: single column ── */
+  .async-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* ── Modals: full-width ── */
+  .restr-modal,
+  .about-modal {
+    width: 94vw;
+    max-width: 94vw;
+    margin: 0 auto;
+  }
+
+  /* ── Calendar / schedule grid ── */
+  .calendar-full {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Pagination: wrap ── */
+  .pagination-controls {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+  }
+}
