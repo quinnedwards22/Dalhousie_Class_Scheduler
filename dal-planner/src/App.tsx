@@ -113,18 +113,19 @@ function App() {
   }, [])
 
   const toggleClassSelection = useCallback((cls: CourseSection) => {
+    const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
+    track(isSelected ? 'class_deselected' : 'class_selected', {
+      crn: cls.CRN,
+      course: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}`,
+      type: cls.SCHD_TYPE,
+      term: cls.TERM_CODE,
+    })
     setSelectedClasses(prev => {
-      const isSelected = prev.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
-      track(isSelected ? 'class_deselected' : 'class_selected', {
-        crn: cls.CRN,
-        course: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}`,
-        type: cls.SCHD_TYPE,
-        term: cls.TERM_CODE,
-      })
-      if (isSelected) return prev.filter(c => !(c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB))
+      const wasSelected = prev.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
+      if (wasSelected) return prev.filter(c => !(c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB))
       return [...prev, cls]
     })
-  }, [setSelectedClasses])
+  }, [selectedClasses, setSelectedClasses])
 
   useEffect(() => {
     if (!import.meta.env.VITE_SUPABASE_URL) {
