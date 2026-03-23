@@ -11,6 +11,7 @@ type AppHeaderProps = {
   createWorkspace: () => void
   switchWorkspace: (id: string) => void
   deleteWorkspace: (id: string) => void
+  renameWorkspace: (id: string, name: string) => void
   selectedCount: number
   totalCredits: number
   conflictCount: number
@@ -24,18 +25,52 @@ const AppHeader = React.memo(function AppHeader({
   createWorkspace,
   switchWorkspace,
   deleteWorkspace,
+  renameWorkspace,
   selectedCount,
   totalCredits,
   conflictCount,
   missingLinkCount,
 }: AppHeaderProps) {
   const [showHint, setShowHint] = useState(true)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [showRenameHint, setShowRenameHint] = useState(
+    () => !localStorage.getItem('dal-planner-rename-hint-seen')
+  )
+
+  function dismissRenameHint() {
+    setShowRenameHint(false)
+    localStorage.setItem('dal-planner-rename-hint-seen', '1')
+  }
+
+  function startEditing() {
+    dismissRenameHint()
+    const active = appState.workspaces.find(w => w.id === appState.activeWorkspaceId) || appState.workspaces[0]
+    setEditName(active.name)
+    setIsEditing(true)
+  }
+
+  function commitEdit() {
+    renameWorkspace(appState.activeWorkspaceId, editName)
+    setIsEditing(false)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') commitEdit()
+    else if (e.key === 'Escape') setIsEditing(false)
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => setShowHint(false), 5000)
     if (activeTab === 'schedule') setShowHint(false)
     return () => clearTimeout(timer)
   }, [activeTab])
+
+  useEffect(() => {
+    if (!showRenameHint) return
+    const timer = setTimeout(dismissRenameHint, 5000)
+    return () => clearTimeout(timer)
+  }, [showRenameHint])
 
   return (
     <header className="app-header">
@@ -45,18 +80,39 @@ const AppHeader = React.memo(function AppHeader({
       </div>
 
       <div className="workspace-selector">
-        <select
-          value={appState.activeWorkspaceId}
-          onChange={e => {
-            if (e.target.value === 'NEW') createWorkspace()
-            else switchWorkspace(e.target.value)
-          }}
-        >
-          {appState.workspaces.map(w => (
-            <option key={w.id} value={w.id}>{w.name}</option>
-          ))}
-          <option value="NEW">+ New Plan...</option>
-        </select>
+        {isEditing ? (
+          <input
+            className="workspace-name-input"
+            value={editName}
+            onChange={e => setEditName(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={handleKeyDown}
+            autoFocus
+          />
+        ) : (
+          <select
+            value={appState.activeWorkspaceId}
+            onChange={e => {
+              if (e.target.value === 'NEW') createWorkspace()
+              else switchWorkspace(e.target.value)
+            }}
+          >
+            {appState.workspaces.map(w => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+            <option value="NEW">+ New Plan...</option>
+          </select>
+        )}
+        <div className="workspace-rename-wrapper">
+          <button className="workspace-rename" onClick={startEditing} title="Rename Plan">
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M8.5 1.5a1.414 1.414 0 0 1 2 2L3.5 10.5l-3 .5.5-3L8.5 1.5z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <div className={`rename-hint-popup ${showRenameHint ? 'visible' : ''}`}>
+            New! Name your plans
+          </div>
+        </div>
         {appState.workspaces.length > 1 && (
           <button className="workspace-delete" onClick={() => deleteWorkspace(appState.activeWorkspaceId)} title="Delete Plan">
             ✕

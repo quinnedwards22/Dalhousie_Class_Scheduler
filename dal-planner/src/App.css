@@ -74,6 +74,77 @@
   letter-spacing: -0.01em;
 }
 
+.workspace-rename-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.workspace-rename {
+  background: transparent;
+  border: none;
+  color: #9CA3AF;
+  cursor: pointer;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid #c2d5b8;
+  height: 20px;
+  transition: color 0.15s;
+}
+
+.workspace-rename:hover {
+  color: #5C864C;
+}
+
+.rename-hint-popup {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: #1F2937;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 100;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.rename-hint-popup::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 5px;
+  border-style: solid;
+  border-color: transparent transparent #1F2937 transparent;
+}
+
+.rename-hint-popup.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.workspace-name-input {
+  background: transparent;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #374151;
+  outline: none;
+  width: 120px;
+  letter-spacing: -0.01em;
+  padding: 0;
+}
+
 .workspace-delete {
   background: transparent;
   border: none;

@@ -102,6 +102,16 @@ function App() {
     })
   }, [])
 
+  const renameWorkspace = useCallback((id: string, name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    track('workspace_renamed', { workspace_name: trimmed })
+    setAppState(prev => ({
+      ...prev,
+      workspaces: prev.workspaces.map(w => w.id === id ? { ...w, name: trimmed } : w)
+    }))
+  }, [])
+
   const toggleTerm = useCallback((term: string) => {
     setTermFilter(prev => {
       const next = new Set(prev)
@@ -372,6 +382,7 @@ function App() {
         createWorkspace={createWorkspace}
         switchWorkspace={switchWorkspace}
         deleteWorkspace={deleteWorkspace}
+        renameWorkspace={renameWorkspace}
         selectedCount={selectedClasses.length}
         totalCredits={totalCredits}
         conflictCount={conflicts.size}

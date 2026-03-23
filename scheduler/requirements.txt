@@ -4,3 +4,4 @@ apscheduler
 aiohttp
 supabase==2.22.4
 python-dotenv
+posthog
