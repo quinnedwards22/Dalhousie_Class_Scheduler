@@ -12,6 +12,64 @@ export const splitByBr = (str: string | undefined | null): string[] => {
 }
 
 /**
+ * Represents a single enrollment group split from a <br>-delimited enrollment field.
+ * Some classes have multiple enrollment caps for different student populations
+ * (e.g. OPEN for general, DISP for display-only, MEDS for medical students).
+ */
+export type EnrollmentGroup = {
+  label: string   // e.g. "OPEN", "DISP", "MEDS", or "" for plain numeric rows
+  max: number
+  enrl: number
+  seats: number
+  wlist: number
+}
+
+/**
+ * Extracts the first numeric value from a field that may be a plain number,
+ * a bare number string, or a <br>-delimited multi-value string (e.g. "30<br>40").
+ * Used by filter logic that only needs a single representative value.
+ */
+export const firstNumericValue = (field: string | number | null | undefined): number => {
+  if (field == null) return 0
+  if (typeof field === 'number') return isNaN(field) ? 0 : field
+  const first = field.split('<br>')[0].trim()
+  const parenMatch = first.match(/\((\d+)\)/)
+  if (parenMatch) return parseInt(parenMatch[1], 10) || 0
+  return parseInt(first, 10) || 0
+}
+
+/**
+ * Parses the four enrollment fields into an array of EnrollmentGroup objects,
+ * one per <br>-delimited segment. Handles both legacy single-value rows and
+ * multi-group rows where MAX_ENRL contains labels like "OPEN (30)<br> MEDS (30)".
+ */
+export const parseEnrollmentGroups = (
+  maxEnrl: string | number | null,
+  enrl: string | number | null,
+  seats: string | number | null,
+  wlist: string | number | null,
+): EnrollmentGroup[] => {
+  const toStr = (v: string | number | null) => (v == null ? '' : String(v))
+  const maxParts = splitByBr(toStr(maxEnrl))
+  if (maxParts.length === 0) return [{ label: '', max: 0, enrl: 0, seats: 0, wlist: 0 }]
+  const enrlParts = splitByBr(toStr(enrl))
+  const seatsParts = splitByBr(toStr(seats))
+  const wlistParts = splitByBr(toStr(wlist))
+  return maxParts.map((maxPart, i) => {
+    const parenMatch = maxPart.match(/^(.*?)\s*\((\d+)\)\s*$/)
+    const label = parenMatch ? parenMatch[1].trim() : ''
+    const maxNum = parenMatch ? parseInt(parenMatch[2], 10) || 0 : parseInt(maxPart, 10) || 0
+    return {
+      label,
+      max: maxNum,
+      enrl: parseInt(enrlParts[i] ?? '0', 10) || 0,
+      seats: parseInt(seatsParts[i] ?? '0', 10) || 0,
+      wlist: parseInt(wlistParts[i] ?? '0', 10) || 0,
+    }
+  })
+}
+
+/**
  * Parses a compact "HHMM-HHMM" time range string into { start, end }
  * objects with colon-formatted times (e.g. "08:35-09:55").
  * Returns null if the string is missing, malformed, or has no dash.

@@ -22,10 +22,10 @@ export interface CourseSection {
   CRSE_TITLE: string
   TIMES: string | null
   LOCATIONS: string | null
-  MAX_ENRL: number | null
-  ENRL: number | null
-  SEATS: number | null
-  WLIST: number | null
+  MAX_ENRL: string | number | null
+  ENRL: string | number | null
+  SEATS: string | number | null
+  WLIST: string | number | null
   PERC_FULL: number | null
   XLIST_MAX: number | null
   XLIST_CUR: number | null

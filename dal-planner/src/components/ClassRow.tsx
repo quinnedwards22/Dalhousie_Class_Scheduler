@@ -13,7 +13,7 @@
 
 import React, { useMemo } from 'react'
 import type { CourseSection } from '../types'
-import { splitByBr, rowTypeClass } from '../utils/classUtils'
+import { splitByBr, rowTypeClass, parseEnrollmentGroups } from '../utils/classUtils'
 
 type ClassRowProps = {
   cls: CourseSection              // raw class object from Supabase (UPPER_CASE keys)
@@ -68,15 +68,14 @@ const ClassRow = React.memo(function ClassRow({
   // Memoize CRN highlight so it doesn't re-run on every render
   const crnText = useMemo(() => highlightMatch(String(cls.CRN ?? ''), searchQuery), [cls.CRN, searchQuery])
 
-  // A section is waitlisted when seats are exhausted but the waitlist is open
-  const isWlist = Number(cls.SEATS) <= 0 && Number(cls.WLIST) > 0
+  // Parse enrollment into one group per <br>-delimited segment
+  const enrollGroups = useMemo(
+    () => parseEnrollmentGroups(cls.MAX_ENRL, cls.ENRL, cls.SEATS, cls.WLIST),
+    [cls.MAX_ENRL, cls.ENRL, cls.SEATS, cls.WLIST],
+  )
 
-  // Availability bar data
-  const seats = Number(cls.SEATS) || 0
-  const max = Number(cls.MAX_ENRL) || 0
-  const enrl = Number(cls.ENRL) || 0
-  const wlist = Number(cls.WLIST) || 0
-  const pct = max > 0 ? (enrl / max) * 100 : 0  // fill % for the progress bar
+  // A section is waitlisted when the first (general) group is full but has a waitlist
+  const isWlist = enrollGroups.length > 0 && enrollGroups[0].seats <= 0 && enrollGroups[0].wlist > 0
 
   // Compose the row's CSS class string from all applicable states
   const rowClass = [
@@ -163,29 +162,38 @@ const ClassRow = React.memo(function ClassRow({
           {splitByBr(cls.LOCATIONS).map((l, i) => <div key={`loc-${i}`} className="sub-row" dangerouslySetInnerHTML={{ __html: l }} />)}
         </td>
 
-        {/* Availability cell — shows a colour-coded progress bar.
-            Red ≥ 95% full, amber ≥ 80% full, green otherwise.
-            Waitlisted sections display a full bar in a distinct style. */}
+        {/* Availability cell — one sub-row per enrollment group.
+            Multi-group rows (e.g. OPEN / DISP / MEDS) each get their own
+            label, seat count, and colour-coded progress bar.
+            Red ≥ 95% full, amber ≥ 80% full, green otherwise. */}
         <td className="cell-avail">
-          {seats <= 0 && wlist > 0 ? (
-            <div className="avail-wrapper">
-              <div className="avail-text wlist-text">Class Full — Waitlist: {wlist}</div>
-              <div className="avail-bar-bg"><div className="avail-bar-fill wlist-fill" style={{ width: '100%' }} /></div>
-            </div>
-          ) : (
-            <div className="avail-wrapper">
-              <div className="avail-text">{Math.max(0, seats)} seats left ({enrl}/{max})</div>
-              <div className="avail-bar-bg">
-                <div
-                  className="avail-bar-fill"
-                  style={{
-                    width: `${Math.min(100, pct)}%`,
-                    backgroundColor: pct >= 95 ? '#dc2626' : pct >= 80 ? '#d97706' : '#16a34a'
-                  }}
-                />
+          {enrollGroups.map((g, i) => {
+            const pct = g.max > 0 ? (g.enrl / g.max) * 100 : 0
+            return (
+              <div key={i} className="avail-wrapper">
+                {g.label && <div className="avail-group-label">{g.label}</div>}
+                {g.seats <= 0 && g.wlist > 0 ? (
+                  <>
+                    <div className="avail-text wlist-text">Full — WL: {g.wlist}</div>
+                    <div className="avail-bar-bg"><div className="avail-bar-fill wlist-fill" style={{ width: '100%' }} /></div>
+                  </>
+                ) : (
+                  <>
+                    <div className="avail-text">{Math.max(0, g.seats)} seats ({g.enrl}/{g.max})</div>
+                    <div className="avail-bar-bg">
+                      <div
+                        className="avail-bar-fill"
+                        style={{
+                          width: `${Math.min(100, pct)}%`,
+                          backgroundColor: pct >= 95 ? '#dc2626' : pct >= 80 ? '#d97706' : '#16a34a',
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
-            </div>
-          )}
+            )
+          })}
         </td>
 
         <td className="cell-instructor">

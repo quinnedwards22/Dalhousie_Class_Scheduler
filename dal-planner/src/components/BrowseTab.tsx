@@ -24,7 +24,7 @@ const CopyIcon = () => (
     <rect x="1" y="4" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="white"/>
   </svg>
 )
-import { splitByBr, DAY_LETTER_TO_KEY, getTermLabel, getTermShortName } from '../utils/classUtils'
+import { splitByBr, DAY_LETTER_TO_KEY, getTermLabel, getTermShortName, firstNumericValue } from '../utils/classUtils'
 import { supabase } from '../utils/supabase'
 import ClassRow from './ClassRow'
 import PaginationControls from './PaginationControls'
@@ -253,8 +253,7 @@ function BrowseTab({
       }
 
       if (seatsAvailFilter) {
-        const seats = Number(cls.SEATS)
-        if (isNaN(seats) || seats <= 0) return false
+        if (firstNumericValue(cls.SEATS) <= 0) return false
       }
 
       // Hide sections whose times field is exactly "C/D" (course/department-scheduled)

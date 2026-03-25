@@ -1708,6 +1708,21 @@
   padding: 4px 6px;
 }
 
+.avail-group-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  align-self: flex-start;
+}
+
+.avail-wrapper + .avail-wrapper {
+  border-top: 1px solid #E5E7EB;
+  margin-top: 2px;
+  padding-top: 4px;
+}
+
 .avail-text {
   font-size: 0.70rem;
   font-weight: 600;

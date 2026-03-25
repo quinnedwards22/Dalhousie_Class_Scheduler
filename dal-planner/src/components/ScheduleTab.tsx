@@ -18,7 +18,7 @@ import { createViewWeek } from '@schedule-x/calendar'
 import { createEventsServicePlugin } from '@schedule-x/events-service'
 import '@schedule-x/theme-default/dist/calendar.css'
 import type { CourseSection } from '../types'
-import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, DAY_CONFIG, getTermLabel, getTermShortName } from '../utils/classUtils'
+import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, DAY_CONFIG, getTermLabel, getTermShortName, firstNumericValue } from '../utils/classUtils'
 import { exportICS, exportXLSX, exportPNG, exportPDF } from '../utils/exportUtils'
 import { track } from '../utils/analytics'
 
@@ -209,8 +209,8 @@ function ScheduleTab({
 
         // Waitlisted sections use the grey "waitlist" calendar instead of
         // the course color so they're visually distinct.
-        const wlistCnt = Number(cls.WLIST) || 0
-        const isWaitlisted = Number(cls.SEATS) <= 0 && wlistCnt > 0
+        const wlistCnt = firstNumericValue(cls.WLIST)
+        const isWaitlisted = firstNumericValue(cls.SEATS) <= 0 && wlistCnt > 0
         const calendarId = isWaitlisted ? 'waitlist' : (colorMap.get(`${cls.SUBJ_CODE}-${cls.CRSE_NUMB}-${cls.SCHD_TYPE || 'Lec'}`) || 'course-0')
 
         // Iterate over each time slot (a section can have multiple meeting times)
