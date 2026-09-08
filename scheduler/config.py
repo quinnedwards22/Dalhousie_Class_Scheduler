@@ -3,7 +3,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+# Look for .env beside this file first, then at the repo root. In CI neither
+# exists and the credentials come straight from the environment.
+_HERE = Path(__file__).resolve().parent
+for _candidate in (_HERE / ".env", _HERE.parent / ".env"):
+    if _candidate.is_file():
+        load_dotenv(_candidate, override=True)
+        break
 
 import sys
 

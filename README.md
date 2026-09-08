@@ -48,16 +48,37 @@ npm run build    # production build
 
 ## scheduler — Backend
 
-A FastAPI service that scrapes Dalhousie's Banner timetable and uploads the data to Supabase. Runs on a cron schedule (6:00 and 18:00 UTC) and exposes HTTP endpoints for status and manual triggering.
+Scrapes Dalhousie's Banner timetable and uploads the data to Supabase. The refresh runs twice daily in GitHub Actions; the FastAPI app is for local development and manual triggering.
 
 **Tech stack:** Python 3.12, FastAPI, APScheduler, aiohttp, Supabase
+
+### Scheduled Refresh
+
+`.github/workflows/refresh-timetable.yml` runs `python -m scheduler.run_once` at
+06:00 and 18:00 UTC. A full run takes roughly 8-9 minutes.
+
+Trigger one by hand from the Actions tab (**Refresh timetable data** -> **Run
+workflow**), or locally with:
+
+```bash
+python -m scheduler.run_once
+```
+
+The workflow needs two repository secrets, `SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY`. Runs are serialized: a refresh deletes a term's
+rows before reinserting them, so overlapping runs could leave a term
+half-populated.
+
+The frontend shows the timestamp of the last successful run, read from the
+`metadata` table's `last_updated` key. If that date is stale, check the Actions
+tab before suspecting the scraper -- the scrape itself is usually fine.
 
 ### Environment Variables
 
 | Variable | Description |
 |---|---|
 | `SUPABASE_URL` | Supabase project URL |
-| `SUPABASE_SERVICE_KEY` | Supabase service role key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key |
 | `TERMS` | *(optional)* Semicolon-separated term codes to scrape (e.g. `202520;202530`). Defaults to auto-discovery. |
 | `MAX_CONCURRENT` | *(optional)* Max concurrent scraper requests (default: `5`) |
 
@@ -66,7 +87,7 @@ A FastAPI service that scrapes Dalhousie's Banner timetable and uploads the data
 ```bash
 cd scheduler
 pip install -r requirements.txt
-export SUPABASE_URL=... SUPABASE_SERVICE_KEY=...
+export SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...
 uvicorn scheduler.main:app --reload
 ```
 
@@ -74,7 +95,7 @@ uvicorn scheduler.main:app --reload
 
 ```bash
 docker build -t dal-scheduler .
-docker run -e SUPABASE_URL=... -e SUPABASE_SERVICE_KEY=... -p 8000:8000 dal-scheduler
+docker run -e SUPABASE_URL=... -e SUPABASE_SERVICE_ROLE_KEY=... -p 8000:8000 dal-scheduler
 ```
 
 ### API Endpoints
