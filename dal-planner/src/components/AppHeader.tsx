@@ -14,6 +14,7 @@ type AppHeaderProps = {
   renameWorkspace: (id: string, name: string) => void
   selectedCount: number
   totalCredits: number
+  creditsByTerm: { term: string; label: string; credits: number }[]
   conflictCount: number
   missingLinkCount: number
 }
@@ -28,6 +29,7 @@ const AppHeader = React.memo(function AppHeader({
   renameWorkspace,
   selectedCount,
   totalCredits,
+  creditsByTerm,
   conflictCount,
   missingLinkCount,
 }: AppHeaderProps) {
@@ -156,7 +158,20 @@ const AppHeader = React.memo(function AppHeader({
         <span className="header-conflict">{conflictCount} conflict{conflictCount > 1 ? 's' : ''}</span>
       )}
       {selectedCount > 0 && (
-        <span className="header-credits">{totalCredits} cr hrs</span>
+        creditsByTerm.length > 1 ? (
+          // A single combined total across two semesters is not a number anyone
+          // registers against — break it out per term instead.
+          <span className="header-credits header-credits-split">
+            {creditsByTerm.map(t => (
+              <span key={t.term} className="header-credits-term">
+                <span className="header-credits-term-label">{t.label}</span>
+                <span className="header-credits-term-value">{t.credits} cr</span>
+              </span>
+            ))}
+          </span>
+        ) : (
+          <span className="header-credits">{totalCredits} cr hrs</span>
+        )
       )}
     </header>
   )

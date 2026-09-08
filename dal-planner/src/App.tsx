@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import './App.css'
 import { supabase } from './utils/supabase'
-import { splitByBr, parseTimes, timeToMinutes, parseLinkTokens, getLinkGroupNum } from './utils/classUtils'
+import { splitByBr, parseTimes, timeToMinutes, parseLinkTokens, getLinkGroupNum, getTermShortName, sumCreditHours } from './utils/classUtils'
 import AppHeader from './components/AppHeader'
 import BrowseTab from './components/BrowseTab'
 import ScheduleTab from './components/ScheduleTab'
@@ -373,6 +373,17 @@ function App() {
     [selectedClasses]
   )
 
+  // Credit hours split by term. A plan spanning Fall and Winter has no single
+  // meaningful total — you register against each term separately.
+  const creditsByTerm = useMemo(() => {
+    const terms = [...new Set(selectedClasses.map(c => c.TERM_CODE).filter(Boolean))].sort()
+    return terms.map(term => ({
+      term,
+      label: getTermShortName(term),
+      credits: sumCreditHours(selectedClasses.filter(c => c.TERM_CODE === term)),
+    }))
+  }, [selectedClasses])
+
   return (
     <div className="app-container">
       <AppHeader
@@ -385,6 +396,7 @@ function App() {
         renameWorkspace={renameWorkspace}
         selectedCount={selectedClasses.length}
         totalCredits={totalCredits}
+        creditsByTerm={creditsByTerm}
         conflictCount={conflicts.size}
         missingLinkCount={missingLinks.size}
       />

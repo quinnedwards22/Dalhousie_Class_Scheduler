@@ -189,27 +189,78 @@ export const COLOR_PALETTE = [
 ]
 
 /**
- * Maps each day-of-week column name to:
- *  - letter: the single-character code used in day-filter toggles (M/T/W/R/F/S/U)
- *  - date: an arbitrary fixed Monday-week date used to anchor calendar events.
- *          Schedule-X renders a weekly view, so all events need concrete dates;
- *          the absolute date doesn't matter — only the day-of-week alignment does.
- */
-export const DAY_CONFIG = {
-  SUNDAYS: { letter: 'U', date: '2026-02-15' },
-  MONDAYS: { letter: 'M', date: '2026-02-16' },
-  TUESDAYS: { letter: 'T', date: '2026-02-17' },
-  WEDNESDAYS: { letter: 'W', date: '2026-02-18' },
-  THURSDAYS: { letter: 'R', date: '2026-02-19' },
-  FRIDAYS: { letter: 'F', date: '2026-02-20' },
-  SATURDAYS: { letter: 'S', date: '2026-02-21' },
-} as const
-
-/**
  * Reverse lookup from the single-character day-filter letter to the
  * corresponding database column name. Used when applying the day filter
  * to check whether a class meets on a given day.
  */
 export const DAY_LETTER_TO_KEY: Record<string, string> = {
   U: 'SUNDAYS', M: 'MONDAYS', T: 'TUESDAYS', W: 'WEDNESDAYS', R: 'THURSDAYS', F: 'FRIDAYS', S: 'SATURDAYS',
+}
+
+/**
+ * Banner reports dates as "08-SEP-2026". Returns a UTC Date, or null when the
+ * value is missing or unparseable (some sections carry no dates at all).
+ */
+const BANNER_MONTHS: Record<string, number> = {
+  JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,
+  JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11,
+}
+
+export const parseBannerDate = (value: string | null | undefined): Date | null => {
+  if (!value) return null
+  const match = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(value.trim())
+  if (!match) return null
+  const month = BANNER_MONTHS[match[2].toUpperCase()]
+  if (month === undefined) return null
+  const date = new Date(Date.UTC(Number(match[3]), month, Number(match[1])))
+  return isNaN(date.getTime()) ? null : date
+}
+
+/**
+ * Picks the calendar week to display for a set of same-term sections.
+ *
+ * The week view is a stand-in for "a typical week of this term", so it needs to
+ * land inside the term's real date range — otherwise a Fall schedule renders on
+ * a week in the middle of Winter. Uses the earliest START_DATE across the given
+ * sections and snaps back to that week's Monday (or Sunday when weekend classes
+ * are shown). Returns null when no section carries a usable start date, letting
+ * the caller keep its own fallback.
+ */
+export const getTermWeekStart = (
+  sections: { START_DATE?: string | null }[],
+  startOnSunday: boolean,
+): string | null => {
+  const starts = sections
+    .map(s => parseBannerDate(s.START_DATE))
+    .filter((d): d is Date => d !== null)
+  if (starts.length === 0) return null
+
+  const earliest = new Date(Math.min(...starts.map(d => d.getTime())))
+  // getUTCDay(): 0 = Sunday … 6 = Saturday
+  const offset = startOnSunday ? earliest.getUTCDay() : (earliest.getUTCDay() + 6) % 7
+  earliest.setUTCDate(earliest.getUTCDate() - offset)
+  return earliest.toISOString().slice(0, 10)
+}
+
+/**
+ * Sums CREDIT_HRS for a list of sections. Labs and tutorials carry 0 credit
+ * hours, so this counts each course once without needing to filter by type.
+ */
+export const sumCreditHours = (sections: { CREDIT_HRS?: number | null }[]): number =>
+  sections.reduce((total, s) => total + (Number(s.CREDIT_HRS) || 0), 0)
+
+/**
+ * Day-column name to its offset from Sunday, matching JavaScript's getUTCDay().
+ * Calendar events are laid out relative to the Sunday of the displayed week.
+ */
+export const DAY_OFFSET_FROM_SUNDAY: Record<string, number> = {
+  SUNDAYS: 0, MONDAYS: 1, TUESDAYS: 2, WEDNESDAYS: 3,
+  THURSDAYS: 4, FRIDAYS: 5, SATURDAYS: 6,
+}
+
+/** Adds whole days to a "YYYY-MM-DD" string and returns the same format. */
+export const addDays = (isoDate: string, days: number): string => {
+  const date = new Date(`${isoDate}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
 }

@@ -2355,3 +2355,79 @@
     gap: 4px;
   }
 }
+/* ── Multi-semester differentiation ──────────────────────────────
+   Shown only when a plan spans two or more terms. A flat list and a
+   single combined credit total stop being readable at that point. */
+
+/* Term banner inside the Selected Classes table */
+.panel-term-header td {
+  background: #f0f4f8;
+  border-top: 1px solid #d8e0e8;
+  border-bottom: 1px solid #d8e0e8;
+  padding: 6px 10px;
+}
+
+.panel-term-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+  letter-spacing: 0.02em;
+}
+
+.panel-term-meta {
+  font-size: 11px;
+  color: #64748b;
+  margin-left: 10px;
+  font-weight: 500;
+}
+
+/* Per-term credit hours in the app header */
+.header-credits-split {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.header-credits-term {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+  padding: 3px 10px;
+}
+
+.header-credits-term + .header-credits-term {
+  border-left: 1px solid #bbf7d0;
+}
+
+.header-credits-term-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+}
+
+.header-credits-term-value {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #4B5563;
+}
+
+/* Credit hours on each semester tab */
+.semester-tab-btn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.semester-tab-credits {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.semester-tab-btn.active .semester-tab-credits {
+  color: #2f6b45;
+}

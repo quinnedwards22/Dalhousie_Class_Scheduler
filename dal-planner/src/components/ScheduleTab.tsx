@@ -18,12 +18,67 @@ import { createViewWeek } from '@schedule-x/calendar'
 import { createEventsServicePlugin } from '@schedule-x/events-service'
 import '@schedule-x/theme-default/dist/calendar.css'
 import type { CourseSection } from '../types'
-import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, DAY_CONFIG, getTermLabel, getTermShortName, firstNumericValue } from '../utils/classUtils'
+import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, getTermLabel, getTermShortName, firstNumericValue, getTermWeekStart, sumCreditHours, DAY_OFFSET_FROM_SUNDAY, addDays } from '../utils/classUtils'
 import { exportICS, exportXLSX, exportPNG, exportPDF } from '../utils/exportUtils'
 import { track } from '../utils/analytics'
 
 // Temporal is injected as a global by the temporal-polyfill package
 declare const Temporal: any
+
+// Used only when no selected section carries a usable START_DATE — without a
+// term to anchor to, any week is as good as another.
+const FALLBACK_WEEK_START = '2026-02-16'
+const FALLBACK_WEEK_START_SUNDAY = '2026-02-15'
+
+// ── TermWeekCalendar ──────────────────────────────────────────
+//
+// Wraps the Schedule-X week view. Schedule-X reads selectedDate once when the
+// calendar app is created, so the parent mounts this with a key tied to the
+// semester being viewed: switching semesters remounts the calendar on that
+// term's own week instead of stranding it on whatever week loaded first.
+interface TermWeekCalendarProps {
+  events: any[]
+  minTime: string
+  maxTime: string
+  hasWeekend: boolean
+  weekStart: string
+}
+
+function TermWeekCalendar({ events, minTime, maxTime, hasWeekend, weekStart }: TermWeekCalendarProps) {
+  const [eventsService] = useState(() => createEventsServicePlugin())
+
+  const calendar = useCalendarApp({
+    views: [createViewWeek()],
+    dayBoundaries: { start: minTime, end: maxTime },
+    weekOptions: { gridHeight: 800, nDays: hasWeekend ? 7 : 5 },
+    events: [],  // initially empty — events are pushed via eventsService below
+    plugins: [eventsService],
+    selectedDate: Temporal.PlainDate.from(weekStart),
+    calendars: {
+      // Register a named calendar entry for each color slot in the palette
+      ...Object.fromEntries(
+        COLOR_PALETTE.map((c, i) => [`course-${i}`, {
+          colorName: `course-${i}`,
+          lightColors: c,
+          darkColors: c,
+        }])
+      ),
+      // Grey calendar for waitlisted sections
+      waitlist: {
+        colorName: 'waitlist',
+        lightColors: { main: '#9CA3AF', container: '#F3F4F6', onContainer: '#4B5563' },
+        darkColors: { main: '#9CA3AF', container: '#F3F4F6', onContainer: '#4B5563' },
+      },
+    },
+  })
+
+  // Sync the derived event list into the live calendar whenever selections change
+  useEffect(() => {
+    eventsService.set(events)
+  }, [events, eventsService])
+
+  return <ScheduleXCalendar calendarApp={calendar} />
+}
 
 // ── CalendarErrorBoundary ─────────────────────────────────────
 // Catches render-time errors thrown by Schedule-X or any child of
@@ -119,8 +174,24 @@ function ScheduleTab({
   const [semesterView, setSemesterView] = useState<string>('')
 
   const uniqueTerms = useMemo(() =>
-    [...new Set(selectedClasses.map(c => c.TERM_CODE).filter(Boolean))] as string[],
+    [...new Set(selectedClasses.map(c => c.TERM_CODE).filter(Boolean))].sort() as string[],
     [selectedClasses]
+  )
+
+  // Selections grouped by term, in term order. A single flat list stops being
+  // readable once a plan spans two semesters — you cannot tell at a glance which
+  // courses belong to which term, or what each term actually adds up to.
+  const termGroups = useMemo(() =>
+    uniqueTerms.map(term => {
+      const classes = selectedClasses.filter(c => c.TERM_CODE === term)
+      return {
+        term,
+        classes,
+        credits: sumCreditHours(classes),
+        courseCount: classes.filter(c => (Number(c.CREDIT_HRS) || 0) > 0).length,
+      }
+    }),
+    [uniqueTerms, selectedClasses]
   )
 
   // When the set of available semesters changes, default to the first one
@@ -153,13 +224,14 @@ function ScheduleTab({
   //   minTime/maxTime — calendar viewport boundaries (padded ±60 min)
   //   hasWeekend     — whether to show Saturday/Sunday columns
   //   courseColorMap — maps "SUBJ-NUMB" to a "course-N" CSS class
-  const { calendarEvents, asyncClasses, minTime, maxTime, hasWeekend, courseColorMap, buildError } = useMemo(() => {
+  const { calendarEvents, asyncClasses, minTime, maxTime, hasWeekend, weekStart, courseColorMap, buildError } = useMemo(() => {
     const defaultResult = {
       calendarEvents: [] as any[], // Event typing relies on ScheduleX internals
       asyncClasses: [] as CourseSection[],
       minTime: '07:00',
       maxTime: '18:00',
       hasWeekend: false,
+      weekStart: FALLBACK_WEEK_START,
       courseColorMap: new Map<string, string>(),
       buildError: null as Error | null,
     }
@@ -168,6 +240,12 @@ function ScheduleTab({
       const classesToRender = uniqueTerms.length <= 1 || !semesterView
         ? selectedClasses
         : selectedClasses.filter(c => c.TERM_CODE === semesterView)
+
+      // Every event is positioned relative to the Sunday of a representative
+      // week inside this term, so a Fall schedule renders on a Fall week and a
+      // Winter schedule on a Winter one. Falls back to a fixed week only when
+      // no section carries a usable START_DATE.
+      const termSunday = getTermWeekStart(classesToRender, true) ?? FALLBACK_WEEK_START_SUNDAY
 
       const evs: any[] = []
       const asyncCls: CourseSection[] = []
@@ -228,14 +306,13 @@ function ScheduleTab({
           const dayKeys = ['SUNDAYS', 'MONDAYS', 'TUESDAYS', 'WEDNESDAYS', 'THURSDAYS', 'FRIDAYS', 'SATURDAYS'] as const
           const dayArrs = [sundaysArr, mondaysArr, tuesdaysArr, wednesdaysArr, thursdaysArr, fridaysArr, saturdaysArr]
           dayKeys.forEach((dayKey, i) => {
-            const config = DAY_CONFIG[dayKey]
             const dayVal = dayArrs[i][idx]
             if (dayVal && dayVal.trim() !== '') {
               if (dayKey === 'SATURDAYS' || dayKey === 'SUNDAYS') weekend = true
-              // Anchor events to the fixed reference week in DAY_CONFIG
+              const eventDate = addDays(termSunday, DAY_OFFSET_FROM_SUNDAY[dayKey])
               // Schedule-X v4 requires Temporal.ZonedDateTime for timed events
-              const startDt = Temporal.ZonedDateTime.from(`${config.date}T${times.start}:00[UTC]`)
-              const endDt = Temporal.ZonedDateTime.from(`${config.date}T${times.end}:00[UTC]`)
+              const startDt = Temporal.ZonedDateTime.from(`${eventDate}T${times.start}:00[UTC]`)
+              const endDt = Temporal.ZonedDateTime.from(`${eventDate}T${times.end}:00[UTC]`)
 
               // Clean up the location string by removing HTML tags like <b>
               const rawLoc = locsArr[idx] || locsArr[0] || ''
@@ -271,6 +348,7 @@ function ScheduleTab({
         minTime: toHH(startHour),
         maxTime: toHH(endHour),
         hasWeekend: weekend,
+        weekStart: weekend ? termSunday : addDays(termSunday, 1),
         courseColorMap: colorMap,
         buildError: null as Error | null,
       }
@@ -280,45 +358,6 @@ function ScheduleTab({
     }
   }, [selectedClasses, semesterView])
 
-  // ── Calendar setup ───────────────────────────────────────────
-  //
-  // eventsService is created once (lazy useState) so it persists across
-  // selectedClasses changes without reinitialising the calendar instance.
-  const [eventsService] = useState(() => createEventsServicePlugin())
-
-  // useCalendarApp is a Schedule-X hook that creates the calendar configuration
-  // object. dayBoundaries and weekOptions are derived from the event data above.
-  // The calendars map registers a named color for each course slot plus "waitlist".
-  const calendar = useCalendarApp({
-    views: [createViewWeek()],
-    dayBoundaries: { start: minTime, end: maxTime },
-    weekOptions: { gridHeight: 800, nDays: hasWeekend ? 7 : 5 },
-    events: [],  // initially empty — events are pushed via eventsService below
-    plugins: [eventsService],
-    // Start on Sunday if there are weekend classes, Monday otherwise
-    selectedDate: Temporal.PlainDate.from(hasWeekend ? '2026-02-15' : '2026-02-16'),
-    calendars: {
-      // Register a named calendar entry for each color slot in the palette
-      ...Object.fromEntries(
-        COLOR_PALETTE.map((c, i) => [`course-${i}`, {
-          colorName: `course-${i}`,
-          lightColors: c,
-          darkColors: c,
-        }])
-      ),
-      // Grey calendar for waitlisted sections
-      waitlist: {
-        colorName: 'waitlist',
-        lightColors: { main: '#9CA3AF', container: '#F3F4F6', onContainer: '#4B5563' },
-        darkColors: { main: '#9CA3AF', container: '#F3F4F6', onContainer: '#4B5563' },
-      },
-    },
-  })
-
-  // Sync the derived event list into the live calendar whenever selections change
-  useEffect(() => {
-    eventsService.set(calendarEvents)
-  }, [calendarEvents, eventsService])
 
   return (
     <div className="tab-content schedule-tab">
@@ -394,7 +433,19 @@ function ScheduleTab({
                     <td colSpan={uniqueTerms.length > 1 ? 6 : 5} className="panel-empty-cell">No classes selected yet</td>
                   </tr>
                 )}
-                {selectedClasses.map(sc => (
+                {termGroups.flatMap(group => [
+                  // Term banner — only meaningful once a plan spans 2+ semesters
+                  ...(uniqueTerms.length > 1 ? [(
+                    <tr key={`hdr-${group.term}`} className="panel-term-header">
+                      <td colSpan={6}>
+                        <span className="panel-term-name">{getTermLabel(group.term)}</span>
+                        <span className="panel-term-meta">
+                          {group.courseCount} {group.courseCount === 1 ? 'course' : 'courses'} · {group.credits} cr hrs
+                        </span>
+                      </td>
+                    </tr>
+                  )] : []),
+                  ...group.classes.map(sc => (
                   <tr
                     key={`${sc.CRN}-${sc.SEQ_NUMB}`}
                     className={copiedCrn === String(sc.CRN) ? 'panel-row-copied' : 'panel-row-clickable'}
@@ -441,7 +492,8 @@ function ScheduleTab({
                       >✕</button>
                     </td>
                   </tr>
-                ))}
+                  )),
+                ])}
               </tbody>
             </table>
           </div>
@@ -457,7 +509,10 @@ function ScheduleTab({
               className={`semester-tab-btn${semesterView === term ? ' active' : ''}`}
               onClick={() => { track('semester_view_changed', { term }); setSemesterView(term) }}
             >
-              {getTermLabel(term)}
+              <span className="semester-tab-label">{getTermLabel(term)}</span>
+              <span className="semester-tab-credits">
+                {termGroups.find(g => g.term === term)?.credits ?? 0} cr
+              </span>
             </button>
           ))}
         </div>
@@ -476,7 +531,14 @@ function ScheduleTab({
         ) : (
           <CalendarErrorBoundary>
             <div className="calendar-full">
-              <ScheduleXCalendar calendarApp={calendar} />
+              <TermWeekCalendar
+                key={semesterView || 'all-terms'}
+                events={calendarEvents}
+                minTime={minTime}
+                maxTime={maxTime}
+                hasWeekend={hasWeekend}
+                weekStart={weekStart}
+              />
             </div>
           </CalendarErrorBoundary>
         )}
