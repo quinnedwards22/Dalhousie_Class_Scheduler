@@ -15,6 +15,7 @@ state: dict = {
     "last_run_utc": None,
     "last_run_rows": 0,
     "last_run_restrictions": 0,
+    "last_run_rows_by_term": {},
     "last_run_duration_s": 0.0,
     "last_error": None,
 }
@@ -34,6 +35,12 @@ async def run_pipeline() -> None:
 
     try:
         rows, restriction_rows = await scrape_all()
+        by_term: dict[str, int] = {}
+        for row in rows:
+            term = str(row.get("TERM_CODE") or "")
+            if term:
+                by_term[term] = by_term.get(term, 0) + 1
+        state["last_run_rows_by_term"] = dict(sorted(by_term.items()))
         count = await upload(rows)
         state["last_run_rows"] = count
         if restriction_rows is None:

@@ -20,7 +20,7 @@ import '@schedule-x/theme-default/dist/calendar.css'
 import type { CourseSection } from '../types'
 import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, getTermLabel, getTermShortName, firstNumericValue, getTermWeekStart, sumCreditHours, DAY_OFFSET_FROM_SUNDAY, addDays } from '../utils/classUtils'
 import { exportICS, exportXLSX, exportPNG, exportPDF } from '../utils/exportUtils'
-import { track } from '../utils/analytics'
+import { track, captureError } from '../utils/analytics'
 
 // Temporal is injected as a global (with types) by temporal-polyfill/global,
 // imported in main.tsx.
@@ -104,6 +104,7 @@ class CalendarErrorBoundary extends Component<{ children: ReactNode }, EBState> 
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ScheduleTab] Calendar render error:', error, info.componentStack)
+    captureError(error, 'calendar_render', { component_stack: info.componentStack })
   }
 
   render() {
@@ -361,6 +362,10 @@ function ScheduleTab({
     }
   }, [selectedClasses, semesterView, uniqueTerms.length])
 
+  // Report event-build failures; the memo above catches them so the tab stays usable
+  useEffect(() => {
+    if (buildError) captureError(buildError, 'calendar_build', { class_count: selectedClasses.length })
+  }, [buildError, selectedClasses.length])
 
   return (
     <div className="tab-content schedule-tab">

@@ -7,7 +7,7 @@ import BrowseTab from './components/BrowseTab'
 import ScheduleTab from './components/ScheduleTab'
 import AboutModal from './components/AboutModal'
 import type { CourseSection, AppState } from './types'
-import { track } from './utils/analytics'
+import { track, captureError } from './utils/analytics'
 
 const defaultState: AppState = {
   activeWorkspaceId: '1',
@@ -189,6 +189,7 @@ function App() {
 
               if (error || !data) {
                 console.error('Error fetching classes for term', term, error)
+                captureError(error ?? new Error('No data returned'), 'classes_fetch', { term, offset: from })
                 failedTerms.add(term)
                 hasError = true
                 break

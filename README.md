@@ -69,7 +69,12 @@ python -m scheduler.run_once
 
 The workflow needs two repository secrets, `SUPABASE_URL` and
 `SUPABASE_SERVICE_ROLE_KEY` (Settings -> Secrets and variables -> Actions); the
-run fails on its first step with a clear error if either is missing. Runs are serialized: a refresh deletes a term's
+run fails on its first step with a clear error if either is missing.
+
+Optionally set the repository **variable** `POSTHOG_PROJECT_API_KEY` (and
+`POSTHOG_HOST` if not US cloud) to report each run to PostHog as
+`timetable_refresh_succeeded` / `timetable_refresh_failed`, with row counts per
+term. A PostHog alert on that event catches a refresh that has stopped working. Runs are serialized: a refresh deletes a term's
 rows before reinserting them, so overlapping runs could leave a term
 half-populated.
 
