@@ -20,7 +20,7 @@ def main() -> int:
 
     print(
         f"Rows: {state['last_run_rows']} classes, "
-        f"{state.get('last_run_restrictions', 0)} restrictions "
+        f"{state['last_run_restrictions']} restrictions "
         f"in {state['last_run_duration_s']}s."
     )
     return 0

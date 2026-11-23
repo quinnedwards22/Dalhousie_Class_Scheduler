@@ -22,8 +22,12 @@ import { splitByBr, parseTimes, timeToMinutes, COLOR_PALETTE, getTermLabel, getT
 import { exportICS, exportXLSX, exportPNG, exportPDF } from '../utils/exportUtils'
 import { track } from '../utils/analytics'
 
-// Temporal is injected as a global by the temporal-polyfill package
-declare const Temporal: any
+// Temporal is injected as a global (with types) by temporal-polyfill/global,
+// imported in main.tsx.
+import type {} from 'temporal-polyfill/global'
+
+// Schedule-X doesn't export its event type, so take it from the events service.
+type CalendarEvent = Parameters<ReturnType<typeof createEventsServicePlugin>['set']>[0][number]
 
 // Used only when no selected section carries a usable START_DATE — without a
 // term to anchor to, any week is as good as another.
@@ -37,7 +41,7 @@ const FALLBACK_WEEK_START_SUNDAY = '2026-02-15'
 // semester being viewed: switching semesters remounts the calendar on that
 // term's own week instead of stranding it on whatever week loaded first.
 interface TermWeekCalendarProps {
-  events: any[]
+  events: CalendarEvent[]
   minTime: string
   maxTime: string
   hasWeekend: boolean
@@ -171,12 +175,16 @@ function ScheduleTab({
   }, [])
 
   // ── Semester view filter ─────────────────────────────────────
-  const [semesterView, setSemesterView] = useState<string>('')
-
   const uniqueTerms = useMemo(() =>
     [...new Set(selectedClasses.map(c => c.TERM_CODE).filter(Boolean))].sort() as string[],
     [selectedClasses]
   )
+
+  // The tab the user picked, if it is still one of the selected terms;
+  // otherwise default to the first. Derived during render rather than reset in
+  // an effect, so there is never a frame that mixes every term on one calendar.
+  const [pickedSemester, setSemesterView] = useState<string>('')
+  const semesterView = uniqueTerms.includes(pickedSemester) ? pickedSemester : (uniqueTerms[0] ?? '')
 
   // Selections grouped by term, in term order. A single flat list stops being
   // readable once a plan spans two semesters — you cannot tell at a glance which
@@ -193,11 +201,6 @@ function ScheduleTab({
     }),
     [uniqueTerms, selectedClasses]
   )
-
-  // When the set of available semesters changes, default to the first one
-  useEffect(() => {
-    setSemesterView(uniqueTerms[0] ?? '')
-  }, [uniqueTerms.join(',')])
 
   // ── Export dropdown ──────────────────────────────────────────
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -226,7 +229,7 @@ function ScheduleTab({
   //   courseColorMap — maps "SUBJ-NUMB" to a "course-N" CSS class
   const { calendarEvents, asyncClasses, minTime, maxTime, hasWeekend, weekStart, courseColorMap, buildError } = useMemo(() => {
     const defaultResult = {
-      calendarEvents: [] as any[], // Event typing relies on ScheduleX internals
+      calendarEvents: [] as CalendarEvent[],
       asyncClasses: [] as CourseSection[],
       minTime: '07:00',
       maxTime: '18:00',
@@ -247,7 +250,7 @@ function ScheduleTab({
       // no section carries a usable START_DATE.
       const termSunday = getTermWeekStart(classesToRender, true) ?? FALLBACK_WEEK_START_SUNDAY
 
-      const evs: any[] = []
+      const evs: CalendarEvent[] = []
       const asyncCls: CourseSection[] = []
       let earliest = 480   // 8:00 AM default lower bound (minutes since midnight)
       let latest = 1020    // 17:00 default upper bound
@@ -356,7 +359,7 @@ function ScheduleTab({
       console.error('[ScheduleTab] Failed to build calendar events:', err)
       return { ...defaultResult, buildError: err instanceof Error ? err : new Error(String(err)) }
     }
-  }, [selectedClasses, semesterView])
+  }, [selectedClasses, semesterView, uniqueTerms.length])
 
 
   return (
@@ -375,7 +378,7 @@ function ScheduleTab({
       <div className="schedule-header">
         <div className="schedule-stats-row">
           <div className="schedule-stats">
-            <span className="stat-item">{selectedClasses.length} class{selectedClasses.length > 1 ? 'es' : ''}</span>
+            <span className="stat-item">{selectedClasses.length} class{selectedClasses.length !== 1 ? 'es' : ''}</span>
             <span className="stat-dot">·</span>
             <span className="stat-item">{totalCredits} credit hour{totalCredits !== 1 ? 's' : ''}</span>
           </div>
@@ -532,7 +535,10 @@ function ScheduleTab({
           <CalendarErrorBoundary>
             <div className="calendar-full">
               <TermWeekCalendar
-                key={semesterView || 'all-terms'}
+                // Schedule-X reads the week, hours and day count only at
+                // creation, so remount whenever any of them change (e.g. after
+                // removing the class that set the earliest start date).
+                key={`${semesterView || 'all-terms'}|${weekStart}|${minTime}-${maxTime}|${hasWeekend ? 7 : 5}`}
                 events={calendarEvents}
                 minTime={minTime}
                 maxTime={maxTime}

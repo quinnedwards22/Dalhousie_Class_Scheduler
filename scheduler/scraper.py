@@ -175,7 +175,10 @@ async def query_subject(
     terms: str,
     districts: str,
     sem: asyncio.Semaphore,
-) -> list[dict]:
+) -> list[dict] | None:
+    """Return the subject's rows ([] if it genuinely has none), or None if every
+    attempt failed. The distinction matters: the uploader replaces whole terms,
+    so treating a failed request as "no classes" would wipe that subject."""
     params = {
         **CLASS_PARAMS_BASE,
         "subj_code": subj_code,
@@ -209,7 +212,7 @@ async def query_subject(
                 print(f"  Error for {subj_code} (attempt {attempt}/3): {e}")
             await asyncio.sleep(attempt * 1.0)
 
-    return []
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -224,8 +227,9 @@ async def query_restrictions(
     crn: str,
     restr_ind: str,
     sem: asyncio.Semaphore,
-) -> list[dict]:
-    """Query restrictions for a single CRN. Returns raw API rows or []."""
+) -> list[dict] | None:
+    """Query restrictions for a single CRN. Returns raw API rows ([] when the
+    CRN has none), or None if every attempt failed."""
     params = {
         "term_code": term_code,
         "crn": crn,
@@ -249,10 +253,7 @@ async def query_restrictions(
                     headers=headers,
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as resp:
-                    if resp.status != 200:
-                        if attempt == 3:
-                            return []
-                    else:
+                    if resp.status == 200:
                         payload = await resp.json(content_type=None)
                         if isinstance(payload, list):
                             return payload
@@ -260,7 +261,7 @@ async def query_restrictions(
                 pass
             await asyncio.sleep(attempt * 0.5)
 
-    return []
+    return None
 
 
 async def scrape_restrictions(
@@ -268,8 +269,11 @@ async def scrape_restrictions(
     token: str,
     class_rows: list[dict],
     sem: asyncio.Semaphore,
-) -> list[dict]:
-    """Scrape restrictions for all unique CRNs found in class_rows."""
+) -> list[dict] | None:
+    """Scrape restrictions for all unique CRNs found in class_rows.
+
+    Returns None if any lookup failed, so the caller keeps the previous
+    restriction data rather than replacing it with an incomplete set."""
     # Extract unique (term_code, crn) pairs
     unique_crns = sorted(
         {(row.get("TERM_CODE", ""), row.get("CRN", "")) for row in class_rows}
@@ -287,6 +291,11 @@ async def scrape_restrictions(
             task_meta.append((term_code, crn, ind))
 
     results = await asyncio.gather(*tasks)
+
+    failed = sum(1 for r in results if r is None)
+    if failed:
+        print(f"Restriction scrape incomplete: {failed}/{len(results)} lookups failed.")
+        return None
 
     # Flatten into restriction rows
     restriction_rows: list[dict] = []
@@ -311,7 +320,13 @@ async def scrape_restrictions(
 # Main entry point
 # ---------------------------------------------------------------------------
 
-async def scrape_all() -> tuple[list[dict], list[dict]]:
+async def scrape_all() -> tuple[list[dict], list[dict] | None]:
+    """Scrape classes and restrictions.
+
+    Raises if any subject could not be fetched, before anything is uploaded, so
+    a partial scrape never replaces good data. The restriction list is None when
+    it could not be fetched completely; the caller should then leave the
+    existing restrictions in place."""
     connector = aiohttp.TCPConnector(limit=MAX_CONCURRENT)
     headers = {"User-Agent": USER_AGENT}
 
@@ -359,6 +374,13 @@ async def scrape_all() -> tuple[list[dict], list[dict]]:
         ]
         results = await asyncio.gather(*tasks)
 
+    failed_subjects = [subj for subj, rows in zip(subjects, results) if rows is None]
+    if failed_subjects:
+        raise RuntimeError(
+            f"{len(failed_subjects)} subject(s) failed after retries: {', '.join(failed_subjects)}. "
+            "Aborting before upload so existing data is kept."
+        )
+
     all_rows: list[dict] = []
     non_empty = 0
     for subj, rows in zip(subjects, results):
@@ -372,13 +394,15 @@ async def scrape_all() -> tuple[list[dict], list[dict]]:
         f"Scrape complete. {non_empty}/{len(subjects)} subjects with data. "
         f"{len(all_rows)} total rows (deduped)."
     )
+    if not all_rows:
+        raise RuntimeError("Scrape returned no classes at all. Aborting before upload.")
 
     # Scrape restrictions using the same session and token
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=MAX_CONCURRENT), headers=headers) as restr_session:
         restr_token = await get_token(restr_session)
         if not restr_token:
             print("Could not acquire token for restrictions, skipping.")
-            return all_rows, []
+            return all_rows, None
         restr_sem = asyncio.Semaphore(MAX_CONCURRENT)
         restriction_rows = await scrape_restrictions(restr_session, restr_token, all_rows, restr_sem)
 

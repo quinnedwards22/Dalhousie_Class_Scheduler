@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { track } from '../utils/analytics'
-
-type Workspace = { id: string; name: string; classes: any[] }
-type AppState = { activeWorkspaceId: string; workspaces: Workspace[] }
+import type { AppState } from '../types'
 
 type AppHeaderProps = {
   appState: AppState
@@ -64,9 +62,8 @@ const AppHeader = React.memo(function AppHeader({
 
   useEffect(() => {
     const timer = setTimeout(() => setShowHint(false), 5000)
-    if (activeTab === 'schedule') setShowHint(false)
     return () => clearTimeout(timer)
-  }, [activeTab])
+  }, [])
 
   useEffect(() => {
     if (!showRenameHint) return

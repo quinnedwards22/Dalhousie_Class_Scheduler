@@ -50,7 +50,9 @@ function RestrictionModal({ cls, data, loading, onClose }: RestrictionModalProps
 
         {loading ? (
           <p className="restr-loading">Loading restrictions...</p>
-        ) : data && data.length === 0 ? (
+        ) : data === null ? (
+          <p className="restr-empty">Couldn't load restrictions right now. Please try again.</p>
+        ) : data.length === 0 ? (
           <p className="restr-empty">No restrictions found for this class.</p>
         ) : (
           <>

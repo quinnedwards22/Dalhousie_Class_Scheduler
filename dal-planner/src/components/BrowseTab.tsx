@@ -29,6 +29,7 @@ import { supabase } from '../utils/supabase'
 import ClassRow from './ClassRow'
 import PaginationControls from './PaginationControls'
 import RestrictionModal from './RestrictionModal'
+import type { RestrictionData } from './RestrictionModal'
 import { track } from '../utils/analytics'
 
 type BrowseTabProps = {
@@ -73,7 +74,9 @@ function BrowseTab({
     try {
       const stored = localStorage.getItem('dal-planner-filters')
       if (stored) return JSON.parse(stored)
-    } catch (_e) { }
+    } catch {
+      // Unreadable stored filters: use defaults
+    }
     return null
   }, [])
 
@@ -155,18 +158,24 @@ function BrowseTab({
 
   // Restriction modal state
   const [restrictionModal, setRestrictionModal] = useState<{
-    crn: string; cls: CourseSection; data: any[] | null; loading: boolean
+    crn: string; cls: CourseSection; data: RestrictionData[] | null; loading: boolean
   } | null>(null)
 
   const showRestrictions = useCallback(async (crn: string, cls: CourseSection) => {
     track('restrictions_viewed', { crn, course: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}` })
     setRestrictionModal({ crn, cls, data: null, loading: true })
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('class_restrictions')
       .select('*')
       .eq('crn', crn)
       .eq('term_code', cls.TERM_CODE)
-    setRestrictionModal({ crn, cls, data: data ?? [], loading: false })
+    if (error) console.error('Error fetching restrictions for CRN', crn, error)
+    // Ignore a late response if the modal was closed or another class opened meanwhile
+    setRestrictionModal(prev =>
+      prev && prev.crn === crn && prev.cls.TERM_CODE === cls.TERM_CODE
+        ? { crn, cls, data: error ? null : (data ?? []), loading: false }
+        : prev
+    )
   }, [])
 
   // True when all four location categories are selected — used to skip the
@@ -184,7 +193,8 @@ function BrowseTab({
     setLocationFilter(prev => {
       const next = new Set(prev)
       const action = next.has(loc) ? 'deselected' : 'selected'
-      next.has(loc) ? next.delete(loc) : next.add(loc)
+      if (next.has(loc)) next.delete(loc)
+      else next.add(loc)
       track('location_filter_toggled', { location: loc, action })
       return next
     })
@@ -195,7 +205,8 @@ function BrowseTab({
     setDayFilter(prev => {
       const next = new Set(prev)
       const action = next.has(day) ? 'deselected' : 'selected'
-      next.has(day) ? next.delete(day) : next.add(day)
+      if (next.has(day)) next.delete(day)
+      else next.add(day)
       track('day_filter_toggled', { day, action })
       return next
     })
