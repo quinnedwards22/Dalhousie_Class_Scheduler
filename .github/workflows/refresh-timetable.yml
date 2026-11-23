@@ -2,8 +2,8 @@ name: Refresh timetable data
 
 on:
   schedule:
-    # 06:00 and 18:00 UTC, matching the cron the FastAPI service used to run.
-    - cron: '0 6,18 * * *'
+    # Every 6 hours (00:00, 06:00, 12:00, 18:00 UTC).
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 # A refresh deletes a term's rows before reinserting them, so two overlapping
@@ -13,6 +13,11 @@ concurrency:
   group: refresh-timetable
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  # Needed by the keepalive step below to re-enable this workflow.
+  actions: write
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
@@ -20,9 +25,31 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      # GitHub disables scheduled workflows after 60 days without repository
+      # activity, which silently stops the refresh. Re-enabling the workflow
+      # through the API on every run keeps the schedule alive. It runs first
+      # and regardless of the outcome of the rest of the job.
+      - name: Keep schedule alive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/refresh-timetable.yml/enable"
 
-      - uses: actions/setup-python@v5
+      - name: Check secrets are configured
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          missing=""
+          [ -n "$SUPABASE_URL" ] || missing="$missing SUPABASE_URL"
+          [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] || missing="$missing SUPABASE_SERVICE_ROLE_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing. Add them under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
