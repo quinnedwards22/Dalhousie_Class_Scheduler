@@ -58,6 +58,15 @@ function TermWeekCalendar({ events, minTime, maxTime, hasWeekend, weekStart }: T
     events: [],  // initially empty — events are pushed via eventsService below
     plugins: [eventsService],
     selectedDate: Temporal.PlainDate.from(weekStart),
+    callbacks: {
+      // Classes are drawn on one representative week, so paging to other weeks
+      // shows an empty calendar. Track it: rage-clicks on these arrows suggest
+      // people expect them to do something useful.
+      onSelectedDateUpdate(date) {
+        const weeks = Math.round(Temporal.PlainDate.from(weekStart).until(date, { largestUnit: 'days' }).days / 7)
+        track('calendar_week_navigated', { weeks_from_class_week: weeks })
+      },
+    },
     calendars: {
       // Register a named calendar entry for each color slot in the palette
       ...Object.fromEntries(
@@ -139,7 +148,7 @@ type ScheduleTabProps = {
   missingLinks: Map<string, string[]>         // CRN-SEQ → unsatisfied link token strings
   totalCredits: number
   workspaceName: string
-  toggleClassSelection: (cls: CourseSection) => void
+  toggleClassSelection: (cls: CourseSection, context?: Record<string, unknown>) => void
   setActiveTab: (tab: 'browse' | 'schedule') => void
 }
 
@@ -213,6 +222,7 @@ function ScheduleTab({
     if (!showExportMenu) return
     function handleClick(e: MouseEvent) {
       if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        track('export_menu_dismissed', { via: 'outside_click' })
         setShowExportMenu(false)
       }
     }
@@ -390,7 +400,10 @@ function ScheduleTab({
           <div className="export-menu-wrapper" ref={exportMenuRef}>
             <button
               className="export-btn"
-              onClick={() => setShowExportMenu(v => !v)}
+              onClick={() => {
+                track(showExportMenu ? 'export_menu_dismissed' : 'export_menu_opened', showExportMenu ? { via: 'toggle' } : { class_count: selectedClasses.length })
+                setShowExportMenu(v => !v)
+              }}
               aria-haspopup="true"
               aria-expanded={showExportMenu}
             >
@@ -494,7 +507,7 @@ function ScheduleTab({
                     <td>
                       <button
                         className="panel-remove-btn"
-                        onClick={(e) => { e.stopPropagation(); toggleClassSelection(sc) }}
+                        onClick={(e) => { e.stopPropagation(); toggleClassSelection(sc, { source: 'schedule_panel' }) }}
                         aria-label={`Remove ${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`}
                         title="Deselect class"
                       >✕</button>
