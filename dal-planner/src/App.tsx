@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import './App.css'
 import { supabase } from './utils/supabase'
-import { splitByBr, parseTimes, timeToMinutes, parseLinkTokens, getLinkGroupNum, getTermShortName, sumCreditHours } from './utils/classUtils'
+import { splitByBr, parseTimes, timeToMinutes, parseLinkTokens, getLinkGroupNum, getTermShortName, sumCreditHours, getDefaultTerm } from './utils/classUtils'
 import AppHeader from './components/AppHeader'
 import BrowseTab from './components/BrowseTab'
 import ScheduleTab from './components/ScheduleTab'
@@ -15,6 +15,14 @@ const defaultState: AppState = {
 }
 
 const CACHE_TTL_MS = 10 * 60 * 1000
+
+// Experiment: does pre-ticking the upcoming term for first-time visitors (who
+// otherwise land on an empty table) get more of them to select a class?
+// Assigned at random on each load for visitors with no saved terms, and never
+// stored: once they pick terms, their own choice is saved and takes over.
+// Reported as default_term_variant on app_loaded and session_summary.
+// 'returning' = had saved terms, so not part of the experiment.
+type DefaultTermVariant = 'preselected' | 'control' | 'returning'
 const termCache = new Map<string, { data: CourseSection[]; fetchedAt: number }>()
 
 function App() {
@@ -26,15 +34,21 @@ function App() {
   const [showAbout, setShowAbout] = useState(false)
   const [fetchError, setFetchError] = useState(false)
 
-  const [termFilter, setTermFilter] = useState<Set<string>>(() => {
+  const [{ initialTerms, defaultTermVariant }] = useState<{ initialTerms: Set<string>; defaultTermVariant: DefaultTermVariant }>(() => {
     try {
       const stored = localStorage.getItem('dal-planner-terms')
-      if (stored) return new Set(JSON.parse(stored))
+      if (stored) {
+        const terms = new Set<string>(JSON.parse(stored))
+        if (terms.size > 0) return { initialTerms: terms, defaultTermVariant: 'returning' }
+      }
     } catch {
-      // Unreadable stored value: start with no terms selected
+      // Unreadable stored value: treat as a first visit
     }
-    return new Set()
+    const defaultTerm = getDefaultTerm()
+    if (defaultTerm && Math.random() < 0.5) return { initialTerms: new Set([defaultTerm]), defaultTermVariant: 'preselected' }
+    return { initialTerms: new Set<string>(), defaultTermVariant: 'control' }
   })
+  const [termFilter, setTermFilter] = useState<Set<string>>(initialTerms)
 
   const [appState, setAppState] = useState<AppState>(() => {
     try {
@@ -114,6 +128,22 @@ function App() {
       ...prev,
       workspaces: prev.workspaces.map(w => w.id === id ? { ...w, name: trimmed } : w)
     }))
+  }, [])
+
+  const clearSelectedClasses = useCallback((source: string) => {
+    if (selectedClasses.length === 0) return
+    if (!window.confirm(`Remove all ${selectedClasses.length} classes from ${activeWorkspace.name}?`)) return
+    track('plan_cleared', { class_count: selectedClasses.length, source })
+    setSelectedClasses([])
+  }, [selectedClasses.length, activeWorkspace.name, setSelectedClasses])
+
+  // "Needs linked section" badges jump to Browse with the course searched, so
+  // its labs/tutorials are right there. A nonce makes repeat clicks re-apply.
+  const [linkedSearch, setLinkedSearch] = useState<{ query: string; nonce: number } | null>(null)
+  const findLinkedSections = useCallback((cls: CourseSection, source: string) => {
+    track('missing_link_badge_clicked', { course: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}`, crn: cls.CRN, source })
+    setLinkedSearch({ query: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}`, nonce: Date.now() })
+    setActiveTab('browse')
   }, [])
 
   const toggleTerm = useCallback((term: string) => {
@@ -409,6 +439,7 @@ function App() {
       saved_class_count: savedClasses,
       workspace_count: appState.workspaces.length,
       has_saved_plan: savedClasses > 0,
+      default_term_variant: defaultTermVariant,
       viewport_width: typeof window !== 'undefined' ? window.innerWidth : null,
     })
     // Only the state restored at first render matters here
@@ -431,6 +462,7 @@ function App() {
       terms_selected: Array.from(termFilter),
       opened_schedule: openedSchedule.current,
       last_tab: activeTab,
+      default_term_variant: defaultTermVariant,
     }
   })
   useEffect(() => {
@@ -553,6 +585,9 @@ function App() {
               termFilter={termFilter}
               toggleTerm={toggleTerm}
               lastRefreshed={lastRefreshed}
+              clearSelectedClasses={clearSelectedClasses}
+              findLinkedSections={findLinkedSections}
+              linkedSearch={linkedSearch}
             />
           )}
           {activeTab === 'schedule' && (
@@ -565,6 +600,8 @@ function App() {
               toggleClassSelection={toggleClassSelection}
               setActiveTab={setActiveTab}
               workspaceName={activeWorkspace.name}
+              clearSelectedClasses={clearSelectedClasses}
+              findLinkedSections={findLinkedSections}
             />
           )}
         </>

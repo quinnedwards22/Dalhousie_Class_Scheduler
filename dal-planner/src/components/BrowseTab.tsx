@@ -47,6 +47,9 @@ type BrowseTabProps = {
   termFilter: Set<string>               // lives in App because changing it triggers a fetch
   toggleTerm: (term: string) => void
   lastRefreshed: string | null
+  clearSelectedClasses: (source: string) => void
+  findLinkedSections: (cls: CourseSection, source: string) => void
+  linkedSearch: { query: string; nonce: number } | null   // set when a "needs linked section" badge was clicked
 }
 
 function BrowseTab({
@@ -64,6 +67,9 @@ function BrowseTab({
   termFilter,
   toggleTerm,
   lastRefreshed,
+  clearSelectedClasses,
+  findLinkedSections,
+  linkedSearch,
 }: BrowseTabProps) {
   // ── Filter state ─────────────────────────────────────────────
   // All filter state is local to BrowseTab so that changing a filter
@@ -141,6 +147,26 @@ function BrowseTab({
   )
   const [currentPage, setCurrentPage] = useState(1)
   const [rowsPerPage, setRowsPerPage] = useState(savedFilters?.rowsPerPage ?? 20)
+
+  // A "needs linked section" badge was clicked (here or on My Schedule): show
+  // that course with filters cleared, so its labs/tutorials are all listed.
+  // Applied while rendering rather than in an effect, keyed on the nonce.
+  const [appliedLinkedNonce, setAppliedLinkedNonce] = useState<number | null>(null)
+  if (linkedSearch && linkedSearch.nonce !== appliedLinkedNonce) {
+    setAppliedLinkedNonce(linkedSearch.nonce)
+    setSearchQuery(linkedSearch.query)
+    setDebouncedSearchQuery(linkedSearch.query)
+    setSubjectFilter('')
+    setTypeFilter('')
+    setDayFilter(new Set())
+    setSeatsAvailFilter(false)
+    setHideCDFilter(false)
+    setCurrentPage(1)
+  }
+  const resultsRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (appliedLinkedNonce !== null) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [appliedLinkedNonce])
 
   // Persist filters to localStorage whenever they change
   useEffect(() => {
@@ -506,13 +532,20 @@ function BrowseTab({
                     Selected Classes
                     <span className="selected-panel-count">{selectedClasses.length}</span>
                   </span>
-                  <button
-                    className={`copy-all-btn${copiedAll ? ' copied' : ''}`}
-                    onClick={copyAllCrns}
-                    title="Copy all CRNs to clipboard"
-                  >
-                    {copiedAll ? '✓ Copied!' : 'Copy All CRNs'}
-                  </button>
+                  <div className="selected-panel-actions">
+                    {selectedClasses.length > 1 && (
+                      <button className="clear-all-btn" onClick={() => clearSelectedClasses('browse')} title="Remove every class from this plan">
+                        Clear all
+                      </button>
+                    )}
+                    <button
+                      className={`copy-all-btn${copiedAll ? ' copied' : ''}`}
+                      onClick={copyAllCrns}
+                      title="Copy all CRNs to clipboard"
+                    >
+                      {copiedAll ? '✓ Copied!' : 'Copy All CRNs'}
+                    </button>
+                  </div>
                 </div>
                 <span className="panel-hint-text">Click a row to copy its CRN</span>
               </div>
@@ -569,7 +602,7 @@ function BrowseTab({
                             <span className="row-status-badge badge-duplicate">duplicate</span>
                           )}
                           {missingLinks.has(`${sc.CRN}-${sc.SEQ_NUMB}`) && (
-                            <span className="row-status-badge badge-missing-link">needs linked section</span>
+                            <button type="button" className="row-status-badge badge-missing-link badge-clickable" title="Show this course's labs and tutorials" onClick={(e) => { e.stopPropagation(); findLinkedSections(sc, 'browse_selected_panel') }}>needs linked section →</button>
                           )}
                         </td>
                         <td>
@@ -608,6 +641,9 @@ function BrowseTab({
           lastRefreshed={lastRefreshed}
         />
       )}
+
+      {/* Scroll target for "needs linked section" jumps */}
+      <div ref={resultsRef} />
 
       {/* ── Class table ── */}
       {fetchError ? (
@@ -782,7 +818,7 @@ function BrowseTab({
                     <td className="fp-badges">
                       {conflicts.has(id) && <span className="row-status-badge badge-conflict">conflict</span>}
                       {duplicateCourses.has(`${sc.SUBJ_CODE} ${sc.CRSE_NUMB} ${sc.SCHD_TYPE || 'Lec'}`) && <span className="row-status-badge badge-duplicate">duplicate</span>}
-                      {missingLinks.has(id) && <span className="row-status-badge badge-missing-link">needs link</span>}
+                      {missingLinks.has(id) && <button type="button" className="row-status-badge badge-missing-link badge-clickable" title="Show this course's labs and tutorials" onClick={(e) => { e.stopPropagation(); findLinkedSections(sc, 'floating_panel') }}>needs link →</button>}
                     </td>
                     <td>
                       <button
