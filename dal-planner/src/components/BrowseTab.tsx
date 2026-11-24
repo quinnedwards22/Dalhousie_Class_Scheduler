@@ -29,7 +29,8 @@ import { supabase } from '../utils/supabase'
 import ClassRow from './ClassRow'
 import PaginationControls from './PaginationControls'
 import RestrictionModal from './RestrictionModal'
-import { track } from '../utils/analytics'
+import type { RestrictionData } from './RestrictionModal'
+import { track, captureError } from '../utils/analytics'
 
 type BrowseTabProps = {
   classes: CourseSection[]                        // full roster for the selected term(s)
@@ -73,7 +74,9 @@ function BrowseTab({
     try {
       const stored = localStorage.getItem('dal-planner-filters')
       if (stored) return JSON.parse(stored)
-    } catch (_e) { }
+    } catch {
+      // Unreadable stored filters: use defaults
+    }
     return null
   }, [])
 
@@ -125,7 +128,6 @@ function BrowseTab({
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearchQuery(searchQuery)
-      if (searchQuery.trim()) track('search_performed', { query: searchQuery.trim() })
     }, 150)
     return () => clearTimeout(handler)
   }, [searchQuery])
@@ -155,18 +157,27 @@ function BrowseTab({
 
   // Restriction modal state
   const [restrictionModal, setRestrictionModal] = useState<{
-    crn: string; cls: CourseSection; data: any[] | null; loading: boolean
+    crn: string; cls: CourseSection; data: RestrictionData[] | null; loading: boolean
   } | null>(null)
 
   const showRestrictions = useCallback(async (crn: string, cls: CourseSection) => {
     track('restrictions_viewed', { crn, course: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}` })
     setRestrictionModal({ crn, cls, data: null, loading: true })
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('class_restrictions')
       .select('*')
       .eq('crn', crn)
       .eq('term_code', cls.TERM_CODE)
-    setRestrictionModal({ crn, cls, data: data ?? [], loading: false })
+    if (error) {
+      console.error('Error fetching restrictions for CRN', crn, error)
+      captureError(error, 'restrictions_fetch', { crn, term: cls.TERM_CODE })
+    }
+    // Ignore a late response if the modal was closed or another class opened meanwhile
+    setRestrictionModal(prev =>
+      prev && prev.crn === crn && prev.cls.TERM_CODE === cls.TERM_CODE
+        ? { crn, cls, data: error ? null : (data ?? []), loading: false }
+        : prev
+    )
   }, [])
 
   // True when all four location categories are selected — used to skip the
@@ -184,7 +195,8 @@ function BrowseTab({
     setLocationFilter(prev => {
       const next = new Set(prev)
       const action = next.has(loc) ? 'deselected' : 'selected'
-      next.has(loc) ? next.delete(loc) : next.add(loc)
+      if (next.has(loc)) next.delete(loc)
+      else next.add(loc)
       track('location_filter_toggled', { location: loc, action })
       return next
     })
@@ -195,7 +207,8 @@ function BrowseTab({
     setDayFilter(prev => {
       const next = new Set(prev)
       const action = next.has(day) ? 'deselected' : 'selected'
-      next.has(day) ? next.delete(day) : next.add(day)
+      if (next.has(day)) next.delete(day)
+      else next.add(day)
       track('day_filter_toggled', { day, action })
       return next
     })
@@ -277,6 +290,30 @@ function BrowseTab({
       return true
     })
   }, [classes, debouncedSearchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter, locationFilter, isLocAll])
+
+  // Search analytics. The 150 ms debounce above keeps the table responsive but
+  // fires on every pause mid-word, so analytics waits for a full second of no
+  // typing and reports each distinct query once, with how many results it got.
+  // Zero-result searches also fire search_no_results: they show what students
+  // look for and can't find (missing courses, or terms the search doesn't match).
+  const lastTrackedQuery = useRef('')
+  const resultCount = filteredClasses.length
+  useEffect(() => {
+    const q = debouncedSearchQuery.trim()
+    if (!q || loading || classes.length === 0 || q === lastTrackedQuery.current) return
+    const handler = setTimeout(() => {
+      lastTrackedQuery.current = q
+      const props = {
+        query: q,
+        results_count: resultCount,
+        other_filters_active: Boolean(subjectFilter || typeFilter || dayFilter.size || seatsAvailFilter || hideCDFilter || !isLocAll),
+        terms: Array.from(termFilter),
+      }
+      track('search_performed', props)
+      if (resultCount === 0) track('search_no_results', props)
+    }, 1000)
+    return () => clearTimeout(handler)
+  }, [debouncedSearchQuery, resultCount, loading, classes.length, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter, isLocAll, termFilter])
 
   // Slice filteredClasses to only the rows for the current page
   const paginatedClasses = useMemo(() => {

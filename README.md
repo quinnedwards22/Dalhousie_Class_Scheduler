@@ -48,14 +48,17 @@ npm run build    # production build
 
 ## scheduler — Backend
 
-Scrapes Dalhousie's Banner timetable and uploads the data to Supabase. The refresh runs twice daily in GitHub Actions; the FastAPI app is for local development and manual triggering.
+Scrapes Dalhousie's Banner timetable and uploads the data to Supabase. The refresh runs every 6 hours in GitHub Actions; the FastAPI app is for local development and manual triggering.
 
 **Tech stack:** Python 3.12, FastAPI, APScheduler, aiohttp, Supabase
 
 ### Scheduled Refresh
 
-`.github/workflows/refresh-timetable.yml` runs `python -m scheduler.run_once` at
-06:00 and 18:00 UTC. A full run takes roughly 8-9 minutes.
+`.github/workflows/refresh-timetable.yml` runs `python -m scheduler.run_once`
+every 6 hours (00:00, 06:00, 12:00 and 18:00 UTC). A full run takes roughly
+8-9 minutes. Each run also re-enables the workflow through the API, because
+GitHub otherwise disables scheduled workflows after 60 days without repository
+activity.
 
 Trigger one by hand from the Actions tab (**Refresh timetable data** -> **Run
 workflow**), or locally with:
@@ -65,7 +68,13 @@ python -m scheduler.run_once
 ```
 
 The workflow needs two repository secrets, `SUPABASE_URL` and
-`SUPABASE_SERVICE_ROLE_KEY`. Runs are serialized: a refresh deletes a term's
+`SUPABASE_SERVICE_ROLE_KEY` (Settings -> Secrets and variables -> Actions); the
+run fails on its first step with a clear error if either is missing.
+
+Optionally set the repository **variable** `POSTHOG_PROJECT_API_KEY` (and
+`POSTHOG_HOST` if not US cloud) to report each run to PostHog as
+`timetable_refresh_succeeded` / `timetable_refresh_failed`, with row counts per
+term. A PostHog alert on that event catches a refresh that has stopped working. Runs are serialized: a refresh deletes a term's
 rows before reinserting them, so overlapping runs could leave a term
 half-populated.
 

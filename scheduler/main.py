@@ -14,6 +14,8 @@ state: dict = {
     "running": False,
     "last_run_utc": None,
     "last_run_rows": 0,
+    "last_run_restrictions": 0,
+    "last_run_rows_by_term": {},
     "last_run_duration_s": 0.0,
     "last_error": None,
 }
@@ -33,10 +35,20 @@ async def run_pipeline() -> None:
 
     try:
         rows, restriction_rows = await scrape_all()
+        by_term: dict[str, int] = {}
+        for row in rows:
+            term = str(row.get("TERM_CODE") or "")
+            if term:
+                by_term[term] = by_term.get(term, 0) + 1
+        state["last_run_rows_by_term"] = dict(sorted(by_term.items()))
         count = await upload(rows)
-        restr_count = await upload_restrictions(restriction_rows)
         state["last_run_rows"] = count
-        state["last_run_restrictions"] = restr_count
+        if restriction_rows is None:
+            # Classes are uploaded; keep the previous restrictions rather than
+            # replacing them with a partial set, but still fail the run so the
+            # problem is visible.
+            raise RuntimeError("Restriction scrape incomplete; kept the previous restriction data.")
+        state["last_run_restrictions"] = await upload_restrictions(restriction_rows)
     except Exception as e:
         state["last_error"] = str(e)
         print(f"Pipeline error: {e}")

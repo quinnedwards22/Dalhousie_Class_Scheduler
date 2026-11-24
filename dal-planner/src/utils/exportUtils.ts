@@ -2,28 +2,66 @@
 // Pure functions for exporting selected classes in four formats.
 // No React imports — safe to use anywhere.
 
-import { splitByBr, parseTimes } from './classUtils'
+import { splitByBr, parseTimes, parseBannerDate } from './classUtils'
 import type { CourseSection } from '../types'
 
 // ── Term date lookup ──────────────────────────────────────────
-// Maps Dalhousie term codes to their actual start/end dates.
-// Pattern: YYYY10 = Winter (Jan–Apr), YYYY20 = Summer (May–Aug),
-//          YYYY30 = Fall (Sep–Dec).
-// DTSTART in ICS uses the first actual class day of the term.
-const TERM_DATES: Record<string, { start: string; end: string }> = {
-  // 2025
-  '202510': { start: '2025-01-06', end: '2025-04-11' },
-  '202520': { start: '2025-05-06', end: '2025-08-08' },
-  '202530': { start: '2025-09-03', end: '2025-12-05' },
-  // 2026
-  '202610': { start: '2026-01-05', end: '2026-04-10' },
-  '202620': { start: '2026-05-05', end: '2026-08-07' },
-  '202630': { start: '2026-09-02', end: '2026-12-04' },
-  // 2027
-  '202710': { start: '2027-01-04', end: '2027-04-09' },
-  '202720': { start: '2027-05-04', end: '2027-08-06' },
-  '202730': { start: '2027-09-01', end: '2027-12-03' },
+// Each section carries its own START_DATE / END_DATE from Banner, which is the
+// source of truth for the ICS date range. This table is only a fallback for
+// sections without dates. Dal term codes are YYYYNN where YYYY is the academic
+// year's END year: YYYY10 = Fall (Sep–Dec of YYYY-1), YYYY20 = Winter
+// (Jan–Apr of YYYY), YYYY30 = Summer (May–Aug of YYYY). Matches getTermLabel.
+function fallbackTermDates(termCode: string): { start: string; end: string } | null {
+  const year = parseInt(termCode?.substring(0, 4) ?? '', 10)
+  if (isNaN(year)) return null
+  switch (termCode.substring(4)) {
+    case '10': return { start: `${year - 1}-09-02`, end: `${year - 1}-12-05` }
+    case '20': return { start: `${year}-01-05`, end: `${year}-04-10` }
+    case '30': return { start: `${year}-05-04`, end: `${year}-08-07` }
+    default: return null
+  }
 }
+
+/** Date range for a section: Banner dates first, then the term fallback. */
+function sectionDates(cls: CourseSection): { start: string; end: string } {
+  const start = parseBannerDate(cls.START_DATE)
+  const end = parseBannerDate(cls.END_DATE)
+  if (start && end && start <= end) {
+    return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) }
+  }
+  return fallbackTermDates(cls.TERM_CODE) ?? { start: '2026-02-16', end: '2026-02-20' }
+}
+
+/** Escape TEXT values per RFC 5545 §3.3.11 (backslash, comma, semicolon, newline). */
+function escapeText(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r?\n/g, '\\n')
+}
+
+// Halifax time zone definition, so clients that don't know the TZID by name
+// (notably Outlook) still place events correctly.
+const VTIMEZONE_HALIFAX = [
+  'BEGIN:VTIMEZONE',
+  'TZID:America/Halifax',
+  'BEGIN:DAYLIGHT',
+  'TZOFFSETFROM:-0400',
+  'TZOFFSETTO:-0300',
+  'TZNAME:ADT',
+  'DTSTART:19700308T020000',
+  'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU',
+  'END:DAYLIGHT',
+  'BEGIN:STANDARD',
+  'TZOFFSETFROM:-0300',
+  'TZOFFSETTO:-0400',
+  'TZNAME:AST',
+  'DTSTART:19701101T020000',
+  'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU',
+  'END:STANDARD',
+  'END:VTIMEZONE',
+]
 
 // ── ICS helpers ───────────────────────────────────────────────
 
@@ -58,9 +96,13 @@ function toIcsLocal(isoDate: string, time: string): string {
   return `${date}T${t}`
 }
 
-/** Format "YYYY-MM-DD" as iCal UTC end-of-day "YYYYMMDDTHHMMSSZ". */
+/**
+ * RRULE UNTIL must be UTC when DTSTART has a TZID. Halifax is UTC-3/-4, so
+ * 03:59:59Z the next day covers every meeting through local midnight of the
+ * last class day.
+ */
 function toIcsUntil(isoDate: string): string {
-  return `${isoDate.replace(/-/g, '')}T235959Z`
+  return `${addDays(isoDate, 1).replace(/-/g, '')}T035959Z`
 }
 
 /** Wrap long lines at 75 octets per RFC 5545 §3.1. */
@@ -111,13 +153,15 @@ export function exportICS(selectedClasses: CourseSection[], workspaceName: strin
     'PRODID:-//DAL Planner//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    `X-WR-CALNAME:${workspaceName || 'My Schedule'}`,
+    foldLine(`X-WR-CALNAME:${escapeText(workspaceName || 'My Schedule')}`),
+    ...VTIMEZONE_HALIFAX,
   ]
+  const dtstamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
 
   for (const cls of selectedClasses) {
-    const termDates = TERM_DATES[cls.TERM_CODE]
-    const termStart = termDates?.start ?? '2026-02-16'  // fallback to reference week Mon
-    const termEnd   = termDates?.end   ?? '2026-02-20'
+    const { start: termStart, end: termEnd } = sectionDates(cls)
+    const summaryBase = `${cls.SUBJ_CODE} ${cls.CRSE_NUMB} (${cls.SCHD_TYPE || 'Lec'})`
+    const description = escapeText(`${cls.CRSE_TITLE || ''}\nSection ${cls.SEQ_NUMB} | CRN ${cls.CRN}`)
 
     const timesArr = splitByBr(cls.TIMES)
     const validTimes = timesArr.filter((t: string) => t.includes('-'))
@@ -126,11 +170,13 @@ export function exportICS(selectedClasses: CourseSection[], workspaceName: strin
       // Async / TBA — emit a single all-day event
       lines.push(
         'BEGIN:VEVENT',
-        foldLine(`UID:async-${cls.CRN}-${cls.SEQ_NUMB}@dal-planner`),
+        foldLine(`UID:async-${cls.TERM_CODE}-${cls.CRN}-${cls.SEQ_NUMB}@dal-planner`),
+        `DTSTAMP:${dtstamp}`,
         `DTSTART;VALUE=DATE:${termStart.replace(/-/g, '')}`,
-        `DTEND;VALUE=DATE:${termStart.replace(/-/g, '')}`,
-        foldLine(`SUMMARY:${cls.SUBJ_CODE} ${cls.CRSE_NUMB} (${cls.SCHD_TYPE || 'Lec'}) — Async/TBA`),
-        foldLine(`DESCRIPTION:${cls.CRSE_TITLE || ''}\\nSection ${cls.SEQ_NUMB} | CRN ${cls.CRN}\\nNo fixed schedule`),
+        // All-day DTEND is exclusive, so a one-day event ends the next day
+        `DTEND;VALUE=DATE:${addDays(termStart, 1).replace(/-/g, '')}`,
+        foldLine(`SUMMARY:${escapeText(`${summaryBase} — Async/TBA`)}`),
+        foldLine(`DESCRIPTION:${description}\\nNo fixed schedule`),
         'END:VEVENT',
       )
       continue
@@ -206,13 +252,14 @@ export function exportICS(selectedClasses: CourseSection[], workspaceName: strin
 
       lines.push(
         'BEGIN:VEVENT',
-        foldLine(`UID:${cls.CRN}-${cls.SEQ_NUMB}-g${groupIdx}@dal-planner`),
+        foldLine(`UID:${cls.TERM_CODE}-${cls.CRN}-${cls.SEQ_NUMB}-g${groupIdx}@dal-planner`),
+        `DTSTAMP:${dtstamp}`,
         `DTSTART;TZID=America/Halifax:${toIcsLocal(firstDate, startTime)}`,
         `DTEND;TZID=America/Halifax:${toIcsLocal(firstDate, endTime)}`,
         foldLine(`RRULE:FREQ=WEEKLY;BYDAY=${byDay};UNTIL=${toIcsUntil(termEnd)}`),
-        foldLine(`SUMMARY:${cls.SUBJ_CODE} ${cls.CRSE_NUMB} (${cls.SCHD_TYPE || 'Lec'})`),
-        foldLine(`DESCRIPTION:${cls.CRSE_TITLE || ''}\\nSection ${cls.SEQ_NUMB} | CRN ${cls.CRN}`),
-        ...(location ? [foldLine(`LOCATION:${location}`)] : []),
+        foldLine(`SUMMARY:${escapeText(summaryBase)}`),
+        foldLine(`DESCRIPTION:${description}`),
+        ...(location ? [foldLine(`LOCATION:${escapeText(location)}`)] : []),
         'END:VEVENT',
       )
       groupIdx++

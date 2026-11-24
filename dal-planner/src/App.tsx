@@ -7,7 +7,7 @@ import BrowseTab from './components/BrowseTab'
 import ScheduleTab from './components/ScheduleTab'
 import AboutModal from './components/AboutModal'
 import type { CourseSection, AppState } from './types'
-import { track } from './utils/analytics'
+import { track, captureError } from './utils/analytics'
 
 const defaultState: AppState = {
   activeWorkspaceId: '1',
@@ -20,9 +20,9 @@ const termCache = new Map<string, { data: CourseSection[]; fetchedAt: number }>(
 function App() {
   const [classes, setClasses] = useState<CourseSection[]>([])
   const [loading, setLoading] = useState(true)
+  const envError = !import.meta.env.VITE_SUPABASE_URL
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'browse' | 'schedule'>('browse')
-  const [envError, setEnvError] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
   const [fetchError, setFetchError] = useState(false)
 
@@ -30,7 +30,9 @@ function App() {
     try {
       const stored = localStorage.getItem('dal-planner-terms')
       if (stored) return new Set(JSON.parse(stored))
-    } catch (_e) { }
+    } catch {
+      // Unreadable stored value: start with no terms selected
+    }
     return new Set()
   })
 
@@ -46,7 +48,9 @@ function App() {
           workspaces: [{ id: '1', name: 'Plan A', classes: JSON.parse(storedV1) }]
         }
       }
-    } catch (_e) { }
+    } catch {
+      // Unreadable stored value: fall back to an empty plan
+    }
     return defaultState
   })
 
@@ -116,7 +120,8 @@ function App() {
     setTermFilter(prev => {
       const next = new Set(prev)
       const action = next.has(term) ? 'deselected' : 'selected'
-      next.has(term) ? next.delete(term) : next.add(term)
+      if (next.has(term)) next.delete(term)
+      else next.add(term)
       track('term_filter_toggled', { term, action, active_terms: Array.from(next) })
       return next
     })
@@ -138,24 +143,20 @@ function App() {
   }, [selectedClasses, setSelectedClasses])
 
   useEffect(() => {
-    if (!import.meta.env.VITE_SUPABASE_URL) {
-      setEnvError(true)
-      setLoading(false)
-    }
-  }, [])
+    // Set when termFilter changes again before this fetch finishes, so a slow
+    // earlier response can't overwrite the result for the newer selection.
+    let cancelled = false
 
-  useEffect(() => {
+    // Nothing to fetch: the render below treats an empty term filter as an
+    // empty, loaded roster, so no state needs resetting here.
+    if (envError || termFilter.size === 0) return
+
     async function getClasses() {
-      if (termFilter.size === 0) {
-        setClasses([])
-        setLoading(false)
-        return
-      }
-
       setLoading(true)
       setFetchError(false)
 
       const terms = Array.from(termFilter)
+      const failedTerms = new Set<string>()
       const now = Date.now()
       const uncached = terms.filter(t => {
         const entry = termCache.get(t)
@@ -167,7 +168,7 @@ function App() {
 
         await Promise.all(
           uncached.map(async term => {
-            const rows: any[] = []
+            const rows: Record<string, unknown>[] = []
             let from = 0
             let hasError = false
             while (true) {
@@ -188,7 +189,8 @@ function App() {
 
               if (error || !data) {
                 console.error('Error fetching classes for term', term, error)
-                setFetchError(true)
+                captureError(error ?? new Error('No data returned'), 'classes_fetch', { term, offset: from })
+                failedTerms.add(term)
                 hasError = true
                 break
               }
@@ -200,7 +202,7 @@ function App() {
             if (hasError) return
 
             if (rows.length > 0) {
-              const upper = rows.map((c: any) => {
+              const upper = rows.map(c => {
                 const u: Record<string, unknown> = {}
                 for (const key in c) u[key.toUpperCase()] = c[key]
                 return u as unknown as CourseSection
@@ -210,6 +212,9 @@ function App() {
           })
         )
       }
+
+      if (cancelled) return
+      if (failedTerms.size > 0) setFetchError(true)
 
       const allClasses = terms.flatMap(t => termCache.get(t)?.data ?? [])
       allClasses.sort((a, b) => {
@@ -228,19 +233,28 @@ function App() {
         .select('value')
         .eq('key', 'last_updated')
         .single()
+      if (cancelled) return
       if (meta?.value) setLastRefreshed(meta.value)
 
+      // Drop saved sections that no longer exist in the latest data (e.g. a
+      // cancelled section). Only judge terms that were actually loaded: a term
+      // that is merely unticked in the filter, or failed to load, says nothing
+      // about whether its sections still exist, and the plan is persisted.
+      const loadedTerms = new Set(
+        terms.filter(t => !failedTerms.has(t) && (termCache.get(t)?.data.length ?? 0) > 0)
+      )
       setSelectedClasses(prev => {
         if (prev.length === 0) return prev
-        const crnSet = new Set(allClasses.map((c: CourseSection) => `${c.CRN}-${c.SEQ_NUMB}`))
-        const valid = prev.filter((c: CourseSection) => crnSet.has(`${c.CRN}-${c.SEQ_NUMB}`))
+        const crnSet = new Set(allClasses.map(c => `${c.CRN}-${c.SEQ_NUMB}`))
+        const valid = prev.filter(c => !loadedTerms.has(c.TERM_CODE) || crnSet.has(`${c.CRN}-${c.SEQ_NUMB}`))
         return valid.length === prev.length ? prev : valid
       })
 
       setLoading(false)
     }
     getClasses()
-  }, [termFilter, setSelectedClasses])
+    return () => { cancelled = true }
+  }, [termFilter, setSelectedClasses, envError])
 
   const conflicts = useMemo(() => {
     const conflictMap = new Map<string, string[]>()
@@ -424,9 +438,9 @@ function App() {
         <>
           {activeTab === 'browse' && (
             <BrowseTab
-              classes={classes}
-              loading={loading}
-              fetchError={fetchError}
+              classes={termFilter.size === 0 ? [] : classes}
+              loading={termFilter.size > 0 && loading}
+              fetchError={termFilter.size > 0 && fetchError}
               selectedClasses={selectedClasses}
               conflicts={conflicts}
               duplicateCourses={duplicateCourses}
