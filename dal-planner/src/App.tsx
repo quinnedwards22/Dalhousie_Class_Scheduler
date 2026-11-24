@@ -7,7 +7,7 @@ import BrowseTab from './components/BrowseTab'
 import ScheduleTab from './components/ScheduleTab'
 import AboutModal from './components/AboutModal'
 import type { CourseSection, AppState } from './types'
-import { track, captureError } from './utils/analytics'
+import { track, captureError, sendSessionSummary } from './utils/analytics'
 
 const defaultState: AppState = {
   activeWorkspaceId: '1',
@@ -127,13 +127,18 @@ function App() {
     })
   }, [])
 
-  const toggleClassSelection = useCallback((cls: CourseSection) => {
+  // `context` says where the toggle came from and what led to it (source
+  // panel, whether a search was active, whether restrictions were viewed), so
+  // optional features can be compared against the core "select a class" step.
+  const toggleClassSelection = useCallback((cls: CourseSection, context?: Record<string, unknown>) => {
     const isSelected = selectedClasses.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
     track(isSelected ? 'class_deselected' : 'class_selected', {
       crn: cls.CRN,
       course: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}`,
       type: cls.SCHD_TYPE,
       term: cls.TERM_CODE,
+      selected_count_before: selectedClasses.length,
+      ...context,
     })
     setSelectedClasses(prev => {
       const wasSelected = prev.some(c => c.CRN === cls.CRN && c.SEQ_NUMB === cls.SEQ_NUMB)
@@ -152,6 +157,7 @@ function App() {
     if (envError || termFilter.size === 0) return
 
     async function getClasses() {
+      const startedAt = performance.now()
       setLoading(true)
       setFetchError(false)
 
@@ -215,6 +221,14 @@ function App() {
 
       if (cancelled) return
       if (failedTerms.size > 0) setFetchError(true)
+      track('classes_loaded', {
+        terms,
+        duration_ms: Math.round(performance.now() - startedAt),
+        fetched_terms: uncached.length,
+        from_cache: uncached.length === 0,
+        failed_terms: Array.from(failedTerms),
+        row_count: terms.reduce((n, t) => n + (termCache.get(t)?.data.length ?? 0), 0),
+      })
 
       const allClasses = terms.flatMap(t => termCache.get(t)?.data ?? [])
       allClasses.sort((a, b) => {
@@ -381,6 +395,49 @@ function App() {
 
     return missing
   }, [selectedClasses])
+
+  // ── Visit analytics ───────────────────────────────────────────
+  // app_loaded records what the visitor came back to. Terms and plans are kept
+  // in the browser, so a returning visitor often skips "pick a term" entirely;
+  // without this the core funnel undercounts them. has_saved_plan is also the
+  // only returning-visitor signal available under cookieless tracking.
+  useEffect(() => {
+    const savedClasses = appState.workspaces.reduce((n, w) => n + w.classes.length, 0)
+    track('app_loaded', {
+      restored_term_count: termFilter.size,
+      restored_terms: Array.from(termFilter),
+      saved_class_count: savedClasses,
+      workspace_count: appState.workspaces.length,
+      has_saved_plan: savedClasses > 0,
+      viewport_width: typeof window !== 'undefined' ? window.innerWidth : null,
+    })
+    // Only the state restored at first render matters here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Latest plan state for session_summary, read when the tab is hidden
+  const openedSchedule = useRef(false)
+  const summaryState = useRef<Record<string, unknown>>({})
+  useEffect(() => {
+    if (activeTab === 'schedule') openedSchedule.current = true
+    summaryState.current = {
+      classes_in_plan: selectedClasses.length,
+      courses_in_plan: new Set(selectedClasses.map(c => `${c.SUBJ_CODE} ${c.CRSE_NUMB}`)).size,
+      terms_in_plan: new Set(selectedClasses.map(c => c.TERM_CODE)).size,
+      workspace_count: appState.workspaces.length,
+      unresolved_conflicts: conflicts.size,
+      unresolved_missing_links: missingLinks.size,
+      unresolved_duplicates: duplicateCourses.size,
+      terms_selected: Array.from(termFilter),
+      opened_schedule: openedSchedule.current,
+      last_tab: activeTab,
+    }
+  })
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') sendSessionSummary(summaryState.current) }
+    document.addEventListener('visibilitychange', onHide)
+    return () => document.removeEventListener('visibilitychange', onHide)
+  }, [])
 
   // ── Warning analytics ─────────────────────────────────────────
   // Records when a conflict / duplicate / missing-linked-section warning first

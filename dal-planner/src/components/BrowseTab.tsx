@@ -42,7 +42,7 @@ type BrowseTabProps = {
   incompatibleLinks: Set<string>        // CRN-SEQ ids that can't be added due to link constraints
   missingLinks: Map<string, string[]>   // CRN-SEQ → unsatisfied link token strings
   totalCredits: number
-  toggleClassSelection: (cls: CourseSection) => void
+  toggleClassSelection: (cls: CourseSection, context?: Record<string, unknown>) => void
   setActiveTab: (tab: 'browse' | 'schedule') => void
   termFilter: Set<string>               // lives in App because changing it triggers a fetch
   toggleTerm: (term: string) => void
@@ -160,8 +160,15 @@ function BrowseTab({
     crn: string; cls: CourseSection; data: RestrictionData[] | null; loading: boolean
   } | null>(null)
 
+  // CRNs whose restrictions were opened this visit, so a later class_selected
+  // can say whether the student checked restrictions first
+  const viewedRestrictions = useRef(new Set<string>())
+  const restrictionsOpenedAt = useRef(0)
+
   const showRestrictions = useCallback(async (crn: string, cls: CourseSection) => {
-    track('restrictions_viewed', { crn, course: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}` })
+    track('restrictions_viewed', { crn, course: `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}`, term: cls.TERM_CODE })
+    viewedRestrictions.current.add(`${cls.TERM_CODE}-${crn}`)
+    restrictionsOpenedAt.current = Date.now()
     setRestrictionModal({ crn, cls, data: null, loading: true })
     const { data, error } = await supabase
       .from('class_restrictions')
@@ -291,6 +298,30 @@ function BrowseTab({
     })
   }, [classes, debouncedSearchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter, locationFilter, isLocAll])
 
+  // ── Table interaction analytics ──────────────────────────────
+  const totalPages = Math.max(1, Math.ceil(filteredClasses.length / rowsPerPage))
+  const changePage = useCallback((page: number) => {
+    track('page_changed', { page, total_pages: totalPages, results: filteredClasses.length, search_active: Boolean(debouncedSearchQuery.trim()) })
+    setCurrentPage(page)
+  }, [totalPages, filteredClasses.length, debouncedSearchQuery])
+  const changeRowsPerPage = useCallback((rows: number) => {
+    track('rows_per_page_changed', { rows_per_page: rows })
+    setRowsPerPage(rows)
+  }, [])
+
+  // Selecting from the main table: record what led to it. Lets the core
+  // "selected a class" step be split by optional features used beforehand.
+  const toggleFromTable = useCallback((cls: CourseSection) => {
+    toggleClassSelection(cls, {
+      source: 'browse_table',
+      search_active: Boolean(debouncedSearchQuery.trim()),
+      subject_filter_active: Boolean(subjectFilter),
+      other_filters_active: Boolean(typeFilter || dayFilter.size || seatsAvailFilter || hideCDFilter || !isLocAll),
+      page: currentPage,
+      viewed_restrictions: viewedRestrictions.current.has(`${cls.TERM_CODE}-${cls.CRN}`),
+    })
+  }, [toggleClassSelection, debouncedSearchQuery, subjectFilter, typeFilter, dayFilter, seatsAvailFilter, hideCDFilter, isLocAll, currentPage])
+
   // Search analytics. The 150 ms debounce above keeps the table responsive but
   // fires on every pause mid-word, so analytics waits for a full second of no
   // typing and reports each distinct query once, with how many results it got.
@@ -411,7 +442,7 @@ function BrowseTab({
                   onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1) }}
                 />
                 {searchQuery && (
-                  <button className="search-clear" onClick={() => { setSearchQuery(''); setCurrentPage(1) }} aria-label="Clear search">✕</button>
+                  <button className="search-clear" onClick={() => { track('search_cleared', { query: searchQuery.trim() }); setSearchQuery(''); setCurrentPage(1) }} aria-label="Clear search">✕</button>
                 )}
               </div>
               {searchQuery && (
@@ -544,7 +575,7 @@ function BrowseTab({
                         <td>
                           <button
                             className="panel-remove-btn"
-                            onClick={(e) => { e.stopPropagation(); toggleClassSelection(sc) }}
+                            onClick={(e) => { e.stopPropagation(); toggleClassSelection(sc, { source: 'selected_panel' }) }}
                             aria-label={`Remove ${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`}
                             title="Deselect class"
                           >✕</button>
@@ -572,8 +603,8 @@ function BrowseTab({
           currentPage={currentPage}
           rowsPerPage={rowsPerPage}
           totalCount={filteredClasses.length}
-          onPageChange={setCurrentPage}
-          onRowsPerPageChange={setRowsPerPage}
+          onPageChange={changePage}
+          onRowsPerPageChange={changeRowsPerPage}
           lastRefreshed={lastRefreshed}
         />
       )}
@@ -646,7 +677,7 @@ function BrowseTab({
                         missingLinkTokens={missingLinks.get(id)}
                         isDuplicate={isSelected && duplicateCourses.has(`${cls.SUBJ_CODE} ${cls.CRSE_NUMB} ${cls.SCHD_TYPE || 'Lec'}`)}
                         searchQuery={debouncedSearchQuery}
-                        onToggle={toggleClassSelection}
+                        onToggle={toggleFromTable}
                         onShowRestrictions={showRestrictions}
                       />
                     )
@@ -664,8 +695,8 @@ function BrowseTab({
           currentPage={currentPage}
           rowsPerPage={rowsPerPage}
           totalCount={filteredClasses.length}
-          onPageChange={setCurrentPage}
-          onRowsPerPageChange={setRowsPerPage}
+          onPageChange={changePage}
+          onRowsPerPageChange={changeRowsPerPage}
           lastRefreshed={lastRefreshed}
         />
       )}
@@ -709,7 +740,7 @@ function BrowseTab({
                 {sc.SUBJ_CODE && sc.CRSE_NUMB
                   ? `${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`
                   : `CRN ${sc.CRN}`}
-                <button className="chip-remove" onClick={() => toggleClassSelection(sc)} aria-label="Remove">✕</button>
+                <button className="chip-remove" onClick={() => toggleClassSelection(sc, { source: 'mini_preview' })} aria-label="Remove">✕</button>
               </span>
             ))}
           </div>
@@ -756,7 +787,7 @@ function BrowseTab({
                     <td>
                       <button
                         className="panel-remove-btn"
-                        onClick={() => toggleClassSelection(sc)}
+                        onClick={() => toggleClassSelection(sc, { source: 'floating_panel' })}
                         aria-label={`Remove ${sc.SUBJ_CODE} ${sc.CRSE_NUMB}`}
                       >✕</button>
                     </td>
@@ -773,7 +804,14 @@ function BrowseTab({
           cls={restrictionModal.cls}
           data={restrictionModal.data}
           loading={restrictionModal.loading}
-          onClose={() => setRestrictionModal(null)}
+          onClose={() => {
+            track('restrictions_closed', {
+              crn: restrictionModal.crn,
+              restriction_count: restrictionModal.data?.length ?? null,
+              seconds_open: Math.round((Date.now() - restrictionsOpenedAt.current) / 1000),
+            })
+            setRestrictionModal(null)
+          }}
         />
       )}
     </div>
