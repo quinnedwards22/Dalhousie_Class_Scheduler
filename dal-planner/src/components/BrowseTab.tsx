@@ -625,7 +625,7 @@ function BrowseTab({
       {/* Data accuracy notice */}
       {classes.length > 0 && (
         <p className="data-accuracy-note">
-          Course data is sourced from Dalhousie's public timetable and refreshed every couple hours.
+          Course data is sourced from Dalhousie's public timetable and refreshed every 6 hours.
           It may be incomplete or out of date. Do not rely on this tool for final registration decisions.
         </p>
       )}

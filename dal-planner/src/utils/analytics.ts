@@ -9,9 +9,19 @@ import posthog from 'posthog-js'
 const visitCounts: Record<string, number> = {}
 const visitStartedAt = Date.now()
 
+type TrackListener = (event: string, properties?: Record<string, unknown>) => void
+const listeners = new Set<TrackListener>()
+
+/** Run `listener` after every tracked event (e.g. to react to an export). Returns an unsubscribe. */
+export function onTrack(listener: TrackListener): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
+}
+
 export function track(event: string, properties?: Record<string, unknown>) {
   visitCounts[event] = (visitCounts[event] ?? 0) + 1
   posthog.capture(event, properties)
+  listeners.forEach(l => l(event, properties))
 }
 
 /**

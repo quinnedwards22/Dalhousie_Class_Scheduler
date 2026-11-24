@@ -15,6 +15,7 @@ type AppHeaderProps = {
   creditsByTerm: { term: string; label: string; credits: number }[]
   conflictCount: number
   missingLinkCount: number
+  onOpenFeedback: () => void
 }
 
 const AppHeader = React.memo(function AppHeader({
@@ -30,6 +31,7 @@ const AppHeader = React.memo(function AppHeader({
   creditsByTerm,
   conflictCount,
   missingLinkCount,
+  onOpenFeedback,
 }: AppHeaderProps) {
   const [showHint, setShowHint] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
@@ -170,6 +172,9 @@ const AppHeader = React.memo(function AppHeader({
           <span className="header-credits">{totalCredits} cr hrs</span>
         )
       )}
+      <button className="header-feedback-btn" onClick={onOpenFeedback} title="Report a problem or suggest something">
+        Feedback
+      </button>
     </header>
   )
 })
