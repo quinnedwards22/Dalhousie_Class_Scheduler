@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import './App.css'
 import { supabase } from './utils/supabase'
 import { splitByBr, parseTimes, timeToMinutes, parseLinkTokens, getLinkGroupNum, getTermShortName, sumCreditHours } from './utils/classUtils'
@@ -381,6 +381,50 @@ function App() {
 
     return missing
   }, [selectedClasses])
+
+  // ── Warning analytics ─────────────────────────────────────────
+  // Records when a conflict / duplicate / missing-linked-section warning first
+  // appears and when it goes away, so we can see whether the warnings lead
+  // people to fix their plan or get ignored. The baseline is reset (without
+  // events) on first load and on workspace switch, so warnings that were
+  // already there aren't reported as new.
+  const warningBaseline = useRef<{ workspaceId: string; shownAt: Map<string, number> } | null>(null)
+  useEffect(() => {
+    const current = new Map<string, { type: string; course: string; detail?: string }>()
+    const courseOf = (id: string) => {
+      const cls = selectedClasses.find(c => `${c.CRN}-${c.SEQ_NUMB}` === id)
+      return cls ? `${cls.SUBJ_CODE} ${cls.CRSE_NUMB}` : id
+    }
+    conflicts.forEach((others, id) => current.set(`conflict:${id}`, { type: 'conflict', course: courseOf(id), detail: others.join(', ') }))
+    missingLinks.forEach((tokens, id) => current.set(`missing_link:${id}`, { type: 'missing_link', course: courseOf(id), detail: tokens.join(', ') }))
+    duplicateCourses.forEach(key => current.set(`duplicate:${key}`, { type: 'duplicate', course: key }))
+
+    const baseline = warningBaseline.current
+    if (!baseline || baseline.workspaceId !== activeWorkspace.id) {
+      const now = Date.now()
+      warningBaseline.current = { workspaceId: activeWorkspace.id, shownAt: new Map([...current.keys()].map(k => [k, now])) }
+      return
+    }
+
+    const selectedIds = new Set(selectedClasses.map(c => `${c.CRN}-${c.SEQ_NUMB}`))
+    current.forEach((w, key) => {
+      if (baseline.shownAt.has(key)) return
+      baseline.shownAt.set(key, Date.now())
+      track('schedule_warning_shown', { warning_type: w.type, course: w.course, detail: w.detail, class_count: selectedClasses.length })
+    })
+    baseline.shownAt.forEach((shownAt, key) => {
+      if (current.has(key)) return
+      baseline.shownAt.delete(key)
+      const [type, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)]
+      track('schedule_warning_resolved', {
+        warning_type: type,
+        // Removing the flagged section itself vs. fixing it another way
+        // (e.g. adding the missing lab, or removing the other conflicting class)
+        resolution: type !== 'duplicate' && !selectedIds.has(id) ? 'removed_flagged_class' : 'fixed',
+        seconds_open: Math.round((Date.now() - shownAt) / 1000),
+      })
+    })
+  }, [conflicts, missingLinks, duplicateCourses, selectedClasses, activeWorkspace.id])
 
   const totalCredits = useMemo(
     () => selectedClasses.reduce((sum, cls) => sum + (Number(cls.CREDIT_HRS) || 0), 0),
