@@ -6,8 +6,10 @@ import AppHeader from './components/AppHeader'
 import BrowseTab from './components/BrowseTab'
 import ScheduleTab from './components/ScheduleTab'
 import AboutModal from './components/AboutModal'
+import FeedbackModal from './components/FeedbackModal'
+import HelpfulPrompt from './components/HelpfulPrompt'
 import type { CourseSection, AppState } from './types'
-import { track, captureError, sendSessionSummary } from './utils/analytics'
+import { track, captureError, sendSessionSummary, onTrack } from './utils/analytics'
 
 const defaultState: AppState = {
   activeWorkspaceId: '1',
@@ -32,6 +34,8 @@ function App() {
   const [lastRefreshed, setLastRefreshed] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'browse' | 'schedule'>('browse')
   const [showAbout, setShowAbout] = useState(false)
+  const [feedbackContext, setFeedbackContext] = useState<Record<string, unknown> | null>(null)
+  const [helpfulContext, setHelpfulContext] = useState<Record<string, unknown> | null>(null)
   const [fetchError, setFetchError] = useState(false)
 
   const [{ initialTerms, defaultTermVariant }] = useState<{ initialTerms: Set<string>; defaultTermVariant: DefaultTermVariant }>(() => {
@@ -471,6 +475,25 @@ function App() {
     return () => document.removeEventListener('visibilitychange', onHide)
   }, [])
 
+  // ── Feedback ─────────────────────────────────────────────────
+  const openFeedback = useCallback((source: string) => {
+    track('feedback_opened', { source })
+    setFeedbackContext({ source, tab: activeTab, classes_in_plan: selectedClasses.length })
+  }, [activeTab, selectedClasses.length])
+
+  // "Did this help?" appears once per visit, shortly after the first time a
+  // plan is taken to registration (copy all CRNs, or any export). Single-CRN
+  // copies are too small a signal to interrupt for.
+  const helpfulAsked = useRef(false)
+  const planSize = useRef(0)
+  useEffect(() => { planSize.current = selectedClasses.length }, [selectedClasses.length])
+  useEffect(() => onTrack((event, props) => {
+    if (helpfulAsked.current || (event !== 'crn_copied_all' && event !== 'schedule_exported')) return
+    helpfulAsked.current = true
+    const context = { trigger: event, format: props?.format, classes_in_plan: planSize.current }
+    setTimeout(() => setHelpfulContext(context), 1500)
+  }), [])
+
   // ── Warning analytics ─────────────────────────────────────────
   // Records when a conflict / duplicate / missing-linked-section warning first
   // appears and when it goes away, so we can see whether the warnings lead
@@ -546,6 +569,7 @@ function App() {
         creditsByTerm={creditsByTerm}
         conflictCount={conflicts.size}
         missingLinkCount={missingLinks.size}
+        onOpenFeedback={() => openFeedback('header')}
       />
 
       <div className="disclaimer-banner">
@@ -614,9 +638,12 @@ function App() {
           <a href="https://www.dal.ca" target="_blank" rel="noopener noreferrer">dal.ca</a>.
         </span>
         <button className="footer-about-link" onClick={() => { track('about_modal_opened'); setShowAbout(true) }}>About</button>
+        <button className="footer-about-link" onClick={() => openFeedback('footer')}>Send feedback</button>
       </footer>
 
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+      {feedbackContext && <FeedbackModal context={feedbackContext} onClose={() => setFeedbackContext(null)} />}
+      {helpfulContext && !feedbackContext && <HelpfulPrompt context={helpfulContext} onClose={() => setHelpfulContext(null)} />}
     </div>
   )
 }

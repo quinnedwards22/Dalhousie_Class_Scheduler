@@ -25,8 +25,10 @@ function AboutModal({ onClose }: AboutModalProps) {
         </p>
 
         <p>
-          This project is free to use and contains no advertising. No personal data is
-          collected from users.
+          This project is free to use and contains no advertising. There are no accounts and
+          no cookies. To see how the tool is used and fix problems, it records anonymous usage
+          analytics and session recordings (text you type in inputs is masked) with PostHog.
+          Feedback you send is stored there too, including your email only if you choose to add it.
         </p>
 
         <div className="about-built-by">
