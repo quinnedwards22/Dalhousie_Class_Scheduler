@@ -58,15 +58,6 @@ function TermWeekCalendar({ events, minTime, maxTime, hasWeekend, weekStart }: T
     events: [],  // initially empty — events are pushed via eventsService below
     plugins: [eventsService],
     selectedDate: Temporal.PlainDate.from(weekStart),
-    callbacks: {
-      // Classes are drawn on one representative week, so paging to other weeks
-      // shows an empty calendar. Track it: rage-clicks on these arrows suggest
-      // people expect them to do something useful.
-      onSelectedDateUpdate(date) {
-        const weeks = Math.round(Temporal.PlainDate.from(weekStart).until(date, { largestUnit: 'days' }).days / 7)
-        track('calendar_week_navigated', { weeks_from_class_week: weeks })
-      },
-    },
     calendars: {
       // Register a named calendar entry for each color slot in the palette
       ...Object.fromEntries(
@@ -150,6 +141,8 @@ type ScheduleTabProps = {
   workspaceName: string
   toggleClassSelection: (cls: CourseSection, context?: Record<string, unknown>) => void
   setActiveTab: (tab: 'browse' | 'schedule') => void
+  clearSelectedClasses: (source: string) => void
+  findLinkedSections: (cls: CourseSection, source: string) => void
 }
 
 function ScheduleTab({
@@ -161,6 +154,8 @@ function ScheduleTab({
   workspaceName,
   toggleClassSelection,
   setActiveTab,
+  clearSelectedClasses,
+  findLinkedSections,
 }: ScheduleTabProps) {
 
   // ── Copy-to-clipboard state ───────────────────────────────────
@@ -426,13 +421,20 @@ function ScheduleTab({
                 Selected Classes
                 <span className="selected-panel-count">{selectedClasses.length}</span>
               </span>
-              <button
-                className={`copy-all-btn${copiedAll ? ' copied' : ''}`}
-                onClick={copyAllCrns}
-                title="Copy all CRNs to clipboard"
-              >
-                {copiedAll ? '✓ Copied!' : 'Copy All CRNs'}
-              </button>
+              <div className="selected-panel-actions">
+                {selectedClasses.length > 1 && (
+                  <button className="clear-all-btn" onClick={() => clearSelectedClasses('schedule')} title="Remove every class from this plan">
+                    Clear all
+                  </button>
+                )}
+                <button
+                  className={`copy-all-btn${copiedAll ? ' copied' : ''}`}
+                  onClick={copyAllCrns}
+                  title="Copy all CRNs to clipboard"
+                >
+                  {copiedAll ? '✓ Copied!' : 'Copy All CRNs'}
+                </button>
+              </div>
             </div>
             <span className="panel-hint-text">Click a row to copy its CRN</span>
           </div>
@@ -501,7 +503,7 @@ function ScheduleTab({
                         <span className="row-status-badge badge-duplicate">duplicate</span>
                       )}
                       {missingLinks.has(`${sc.CRN}-${sc.SEQ_NUMB}`) && (
-                        <span className="row-status-badge badge-missing-link">needs linked section</span>
+                        <button type="button" className="row-status-badge badge-missing-link badge-clickable" title="Show this course's labs and tutorials in Browse" onClick={(e) => { e.stopPropagation(); findLinkedSections(sc, 'schedule_panel') }}>needs linked section →</button>
                       )}
                     </td>
                     <td>
@@ -551,6 +553,10 @@ function ScheduleTab({
           </div>
         ) : (
           <CalendarErrorBoundary>
+            <p className="calendar-week-note">
+              Showing a typical week{uniqueTerms.length > 0 ? ` of ${getTermLabel(semesterView || uniqueTerms[0])}` : ''}.
+              {uniqueTerms.length > 1 ? ' Use the tabs above to switch semesters.' : ''}
+            </p>
             <div className="calendar-full">
               <TermWeekCalendar
                 // Schedule-X reads the week, hours and day count only at

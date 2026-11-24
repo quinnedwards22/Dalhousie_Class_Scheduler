@@ -2431,3 +2431,51 @@
 .semester-tab-btn.active .semester-tab-credits {
   color: #2f6b45;
 }
+
+/* ── Plan actions & clickable badges ───────────────────────── */
+.selected-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.clear-all-btn {
+  padding: 5px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: #991b1b;
+  background: transparent;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.clear-all-btn:hover {
+  background: #fef2f2;
+}
+
+button.badge-clickable {
+  font: inherit;
+  cursor: pointer;
+}
+
+button.badge-clickable:hover {
+  filter: brightness(0.95);
+  text-decoration: underline;
+}
+
+/* The calendar draws classes on one representative week, so paging to other
+   weeks only showed an empty calendar. Hide Schedule-X's week navigation;
+   semesters are switched with the tabs above the calendar. */
+.calendar-full .sx__forward-backward-navigation,
+.calendar-full .sx__today-button,
+.calendar-full .sx__date-picker-wrapper {
+  display: none;
+}
+
+.calendar-week-note {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  color: #64748b;
+}

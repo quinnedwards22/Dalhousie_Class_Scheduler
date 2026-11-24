@@ -264,3 +264,32 @@ export const addDays = (isoDate: string, days: number): string => {
   date.setUTCDate(date.getUTCDate() + days)
   return date.toISOString().slice(0, 10)
 }
+
+/** Terms offered in the term picker, in display order. */
+export const OFFERED_TERMS = ['202630', '202700', '202710', '202720'] as const
+
+/**
+ * The term a first-time visitor most likely wants to plan: the earliest
+ * offered regular term (Fall, Winter or Summer; not Med/Dent) that hasn't
+ * started more than a week ago. Start dates are approximate, which is all
+ * this needs. Returns null when every offered term is already underway.
+ * Term codes use the academic year's end year: YYYY10 = Fall of YYYY-1,
+ * YYYY20 = Winter of YYYY, YYYY30 = Summer of YYYY (see getTermLabel).
+ */
+export const getDefaultTerm = (today: Date = new Date()): string | null => {
+  const approxStart = (code: string): Date | null => {
+    const year = parseInt(code.substring(0, 4), 10)
+    switch (code.substring(4)) {
+      case '10': return new Date(Date.UTC(year - 1, 8, 3))
+      case '20': return new Date(Date.UTC(year, 0, 5))
+      case '30': return new Date(Date.UTC(year, 4, 5))
+      default: return null
+    }
+  }
+  const cutoff = today.getTime() - 7 * 24 * 60 * 60 * 1000
+  const upcoming = OFFERED_TERMS
+    .map(code => ({ code: code as string, start: approxStart(code) }))
+    .filter((t): t is { code: string; start: Date } => t.start !== null && t.start.getTime() >= cutoff)
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
+  return upcoming[0]?.code ?? null
+}
